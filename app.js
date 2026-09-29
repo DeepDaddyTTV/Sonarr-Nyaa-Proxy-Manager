@@ -8,7 +8,7 @@ const defaultRules = [
   { id: "season-isolation", type: "season filter", name: "Season scans stay seasonal", description: "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season." },
   { id: "series-anchor", type: "series safety", name: "Anchor the series match", description: "Requires meaningful title words to match, reducing substring results for a different show." },
   { id: "query-expansion", type: "search strategy", name: "Expand release queries", description: "Searches padded, unpadded, ordinal, and year-aware season forms to retain EMBER, Judas, Anime Time, and DB results." },
-  { id: "direct-torrent", type: "delivery", name: "Use direct .torrent links", description: "Suppresses magnet links and serves the tracker download URL that Sonarr and qBittorrent can reliably consume." },
+  { id: "direct-torrent", type: "delivery", name: "Provide torrent links", description: "Prefers a magnet link when Nyaa provides an info hash and falls back to its torrent download URL otherwise." },
   { id: "dual-audio", type: "languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
 ];
 
