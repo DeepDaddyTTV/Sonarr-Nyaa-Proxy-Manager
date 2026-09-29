@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1210" />
+    <title>Sonarr-Nyaa Proxy Manager</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <a class="brand" href="#top" aria-label="Sonarr-Nyaa Proxy Manager home">
+          <span class="brand-mark">N</span>
+          <span><strong>Sonarr-Nyaa</strong><small>Proxy Manager</small></span>
+        </a>
+        <div class="topbar-actions">
+          <span class="connection"><i></i> Local workspace</span>
+          <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
+            <span aria-hidden="true">◐</span><span id="themeLabel">Light</span>
+          </button>
+        </div>
+      </header>
+
+      <section class="hero" id="top">
+        <div>
+          <p class="eyebrow">Rule control plane</p>
+          <h1>Keep the right releases.<br /><em>Reject the noise.</em></h1>
+          <p class="hero-copy">A clean rule workspace for Sonarr searches routed through your Nyaa proxy. Defaults reflect the behavior currently protecting season and episode scans.</p>
+        </div>
+        <div class="hero-stats" aria-label="Rule counts">
+          <div><strong id="defaultCount">8</strong><span>Locked defaults</span></div>
+          <div><strong id="customCount">0</strong><span>Custom rules</span></div>
+          <div><strong id="activeCount">8</strong><span>Rules active</span></div>
+        </div>
+      </section>
+
+      <section class="notice" aria-label="How this workspace works">
+        <span class="notice-icon">!</span>
+        <p><strong>Defaults are protected.</strong> They document the active proxy safety net. Add custom rules alongside them, then export a configuration when you are ready to wire it into a deploy.</p>
+      </section>
+
+      <nav class="section-nav" aria-label="Rule sections">
+        <a href="#defaults">Locked defaults <span id="navDefaultCount">8</span></a>
+        <a href="#custom">Custom rules <span id="navCustomCount">0</span></a>
+      </nav>
+
+      <section class="rule-section" id="defaults">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">System rules</p>
+            <h2>Locked defaults</h2>
+          </div>
+          <p>These mirror the current proxy implementation and cannot be changed here.</p>
+        </div>
+        <div class="rule-grid" id="defaultRules"></div>
+      </section>
+
+      <section class="rule-section custom-section" id="custom">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Your layer</p>
+            <h2>Custom rules</h2>
+          </div>
+          <button class="button button-primary" id="openRuleForm" type="button"><span>+</span> Add rule</button>
+        </div>
+
+        <form class="rule-form" id="ruleForm" hidden>
+          <div class="form-heading">
+            <div><p class="eyebrow">New custom rule</p><h3>Define what the proxy should do</h3></div>
+            <button class="icon-button" id="closeRuleForm" type="button" aria-label="Close add rule form">×</button>
+          </div>
+          <div class="form-grid">
+            <label>Rule name<input id="ruleName" name="name" maxlength="48" placeholder="Prefer a release group" required /></label>
+            <label>Rule type<select id="ruleType" name="type">
+              <option value="title-match">Title match</option>
+              <option value="title-regex">Title regex</option>
+              <option value="search-variant">Search variant</option>
+              <option value="language-tag">Language annotation</option>
+              <option value="result-filter">Result filter</option>
+            </select></label>
+            <label>When this matches<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas|EMBER" required /></label>
+            <label>Then do this<select id="ruleAction" name="action">
+              <option value="keep">Keep result</option>
+              <option value="exclude">Exclude result</option>
+              <option value="prefer">Prefer result</option>
+              <option value="rewrite">Rewrite title</option>
+              <option value="annotate">Add annotation</option>
+            </select></label>
+          </div>
+          <div class="form-footer"><p>Custom rules are saved only in this browser until you export them.</p><button class="button button-primary" type="submit">Save custom rule</button></div>
+        </form>
+
+        <div class="custom-rules" id="customRules"></div>
+        <div class="empty-state" id="emptyState">
+          <span>+</span>
+          <h3>No custom rules yet</h3>
+          <p>Start small: add a group preference, a title rewrite, or an exclusion for a noisy release pattern.</p>
+          <button class="button button-secondary" id="emptyAddRule" type="button">Add your first rule</button>
+        </div>
+      </section>
+
+      <section class="export-bar">
+        <div><p class="eyebrow">Portable configuration</p><h2>Take your rules with you.</h2><p>Export the default rule map and your custom layer as JSON.</p></div>
+        <button class="button button-secondary" id="exportRules" type="button">Export rules <span>↓</span></button>
+      </section>
+    </main>
+    <footer>Sonarr-Nyaa Proxy Manager <span>·</span> Rules are local until deployed.</footer>
+    <script src="app.js"></script>
+  </body>
+</html>

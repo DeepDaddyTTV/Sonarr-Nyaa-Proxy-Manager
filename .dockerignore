@@ -1,0 +1,5 @@
+.git
+.DS_Store
+README.md
+test_*.py
+__pycache__
