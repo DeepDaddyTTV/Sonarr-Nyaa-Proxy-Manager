@@ -26,6 +26,8 @@ Use the public development image:
 ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev
 ```
 
+Pull it with `docker pull ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev`.
+
 Example Compose service:
 
 ```yaml
