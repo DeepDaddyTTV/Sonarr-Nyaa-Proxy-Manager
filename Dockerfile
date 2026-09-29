@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.source="https://github.com/DeepDaddyTTV/Sonarr-Ny
 
 WORKDIR /app
 COPY nyaa_season_proxy.py nyaa_proxy_runtime_patch.py manager_server.py ./
-COPY index.html styles.css app.js ./
+COPY index.html login.html styles.css app.js auth.js ./
 
 RUN mkdir -p /data \
     && chown -R proxy:proxy /app /data

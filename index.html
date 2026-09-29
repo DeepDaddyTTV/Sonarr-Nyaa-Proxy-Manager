@@ -19,6 +19,7 @@
           <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
             <span aria-hidden="true">◐</span><span id="themeLabel">Light</span>
           </button>
+          <button class="logout-button" id="logoutButton" type="button">Log out</button>
         </div>
       </header>
 
@@ -37,7 +38,7 @@
 
       <section class="notice" aria-label="How this workspace works">
         <span class="notice-icon">!</span>
-        <p><strong>Defaults are protected.</strong> They document the active proxy safety net. Add custom rules alongside them, then export a configuration when you are ready to wire it into a deploy.</p>
+          <p><strong>Defaults are protected.</strong> They document the active proxy behavior. Custom rules are saved here, but do not change release searches yet.</p>
       </section>
 
       <nav class="section-nav" aria-label="Rule sections">
@@ -105,7 +106,7 @@
         <button class="button button-secondary" id="exportRules" type="button">Export rules <span>↓</span></button>
       </section>
     </main>
-    <footer>Sonarr-Nyaa Proxy Manager <span>·</span> Rules are local until deployed.</footer>
+    <footer>Sonarr-Nyaa Proxy Manager <span>·</span> Custom rules are saved to the manager volume.</footer>
     <script src="app.js"></script>
   </body>
 </html>

@@ -6,7 +6,7 @@ A small Torznab-compatible proxy for Nyaa.si, with a web interface for reviewing
 
 Sonarr sends release searches to this service. The proxy searches Nyaa.si and reshapes its results to make anime season packs and episodes easier for Sonarr to identify. Its built-in behavior handles season naming variants, separates season-pack and exact-episode results, matches meaningful series-title words, and adds Japanese and English language metadata to releases marked Dual Audio. When Nyaa provides an info hash, the proxy prefers a magnet link and falls back to the torrent download URL when it does not.
 
-The manager is available at `/manager/`. It shows the built-in rules as locked defaults and lets operators save, enable, disable, remove, and export custom rule definitions. Custom rules are stored in `/data/custom-rules.json` on the persistent `/data` volume. **Custom rules are currently saved and exported, but are not yet applied to release searches.**
+The manager is available at `/manager/` and uses a username/password sign-in. It shows the built-in rules as locked defaults and lets operators save, enable, disable, remove, and export custom rule definitions. Custom rules are stored in `/data/custom-rules.json` on the persistent `/data` volume. **Custom rules are currently saved and exported, but are not yet applied to release searches.**
 
 ## Requirements
 
@@ -41,6 +41,9 @@ services:
       SONARR_URL: ${SONARR_URL:-}
       SONARR_API_KEY: ${SONARR_API_KEY:-}
       PROXY_API_KEY: ${PROXY_API_KEY:-}
+      AUTH_USERNAME: ${AUTH_USERNAME:?Set AUTH_USERNAME}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - nyaa-proxy-data:/data
 
@@ -50,7 +53,7 @@ volumes:
 
 Connect the proxy and Sonarr to the same Docker network. In Sonarr, add a Torznab indexer with URL `http://nyaa-proxy:8787/api`. If `PROXY_API_KEY` is set, enter the same value in the indexer's API key field. The manager UI is at `http://<proxy-address>:8787/manager/`; choose a host port mapping only if you need browser access to it. The example above exposes the container port only to its Docker network and does not publish a host port.
 
-Keep the manager UI on a trusted network. The Torznab `PROXY_API_KEY` protects `/api`; it does not add authentication to the manager UI or its rule-writing endpoint.
+Set both `AUTH_USERNAME` and `AUTH_PASSWORD` to enable the manager. Without them, manager pages and rule APIs remain locked and the login page explains how to configure access; Sonarr's Torznab `/api` continues to work independently. The session cookie is HTTP-only, same-site, and expires after 12 hours. Set `AUTH_COOKIE_SECURE=true` when the manager is accessed over HTTPS. Use your container manager's secret facility or an untracked environment file for credentials, never a public Compose file. `PROXY_API_KEY` remains a separate optional key for Torznab requests.
 
 ## Configuration
 
@@ -66,6 +69,9 @@ Settings can be provided as environment variables. Defaults shown here are used 
 | `SONARR_URL` | empty | Sonarr base URL reachable from the proxy container; used for series metadata lookup. |
 | `SONARR_API_KEY` | empty | Sonarr API key for the optional metadata lookup. |
 | `PROXY_API_KEY` | empty | Optional API key required for Torznab `/api` requests. |
+| `AUTH_USERNAME` | unset | Username required to sign in to the manager UI. Must be configured with `AUTH_PASSWORD`. |
+| `AUTH_PASSWORD` | unset | Password required to sign in to the manager UI. Must be configured with `AUTH_USERNAME`. |
+| `AUTH_COOKIE_SECURE` | `false` | Adds the Secure flag to the manager session cookie; enable when accessing the UI over HTTPS. |
 | `CACHE_TTL_SECONDS` | `300` | Cache duration for Nyaa and Sonarr responses. |
 | `REQUEST_TIMEOUT_SECONDS` | `20` | Outbound request timeout. |
 | `SONARR_CONFIG_PATH` | `/app/sonarr_proxy_config.json` | Optional legacy JSON configuration file path. |
@@ -75,7 +81,8 @@ Do not put real API keys in a public Compose file or commit them to source contr
 ## Endpoints
 
 - `/api` - Torznab endpoint to add as an indexer in Sonarr.
-- `/manager/` - Browser UI for built-in defaults and custom rule data.
+- `/manager/` - Authenticated browser UI for built-in defaults and custom rule data.
+- `/manager/login` - Manager sign-in page.
 - `/health` - Basic health response.
 
 ## Development

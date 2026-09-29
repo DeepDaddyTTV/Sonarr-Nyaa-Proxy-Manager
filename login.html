@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#0b1210" />
+    <title>Sign in · Sonarr-Nyaa Proxy Manager</title>
+    <link rel="stylesheet" href="/manager/styles.css" />
+    <script src="/manager/auth.js" defer></script>
+  </head>
+  <body class="auth-page">
+    <header class="auth-topbar">
+      <a class="brand" href="/manager/login" aria-label="Sonarr-Nyaa Proxy Manager sign in">
+        <span class="brand-mark">N</span>
+        <span><strong>Sonarr-Nyaa</strong><small>Proxy Manager</small></span>
+      </a>
+      <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
+        <span aria-hidden="true">◐</span><span id="themeLabel">Light</span>
+      </button>
+    </header>
+
+    <main class="auth-layout">
+      <section class="auth-card" aria-labelledby="signInTitle">
+        <p class="eyebrow">Private workspace</p>
+        <h1 id="signInTitle">Welcome back.</h1>
+        <p class="auth-intro">Sign in to manage your proxy rules.</p>
+        <form id="loginForm" class="auth-form">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" autocomplete="username" required autofocus />
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" autocomplete="current-password" required />
+          <p class="auth-error" id="loginError" role="alert" hidden></p>
+          <button class="button button-primary auth-submit" id="loginButton" type="submit">Sign in</button>
+        </form>
+        <p class="auth-note">Sign-in credentials are set with <code>AUTH_USERNAME</code> and <code>AUTH_PASSWORD</code> in the container configuration.</p>
+      </section>
+    </main>
+    <footer>Sonarr-Nyaa Proxy Manager <span>·</span> Authorized access only</footer>
+  </body>
+</html>

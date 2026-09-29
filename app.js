@@ -39,12 +39,18 @@ function saveRules() {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ customRules }),
+  }).then(response => {
+    if (response.status === 401 || response.status === 503) window.location.assign("/manager/login");
   }).catch(() => undefined);
 }
 
 async function hydrateRules() {
   try {
     const response = await fetch("/manager/api/rules");
+    if (response.status === 401 || response.status === 503) {
+      window.location.assign("/manager/login");
+      return;
+    }
     if (!response.ok) return;
     const payload = await response.json();
     if (Array.isArray(payload.customRules)) {
@@ -61,8 +67,8 @@ function ruleCard(rule) {
 
 function customRuleCard(rule) {
   const state = rule.enabled ? "is-on" : "";
-  return `<article class="custom-rule" data-id="${rule.id}">
-    <button class="toggle ${state}" type="button" aria-label="${rule.enabled ? "Disable" : "Enable"} ${rule.name}" data-action="toggle"><i></i></button>
+  return `<article class="custom-rule" data-id="${escapeHtml(rule.id)}">
+    <button class="toggle ${state}" type="button" aria-label="${rule.enabled ? "Disable" : "Enable"} ${escapeHtml(rule.name)}" data-action="toggle"><i></i></button>
     <div><h3>${escapeHtml(rule.name)}</h3><p>${escapeHtml(rule.type)} · ${escapeHtml(rule.action)} · ${escapeHtml(rule.match)}</p></div>
     <span class="tag">custom</span>
     <button class="delete-rule" type="button" data-action="delete">Remove</button>
@@ -70,7 +76,7 @@ function customRuleCard(rule) {
 }
 
 function escapeHtml(value) {
-  return value.replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+  return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
 }
 
 function render() {
@@ -133,6 +139,11 @@ els.customRules.addEventListener("click", event => {
 });
 
 els.themeToggle.addEventListener("click", () => setTheme(currentTheme === "dark" ? "light" : "dark"));
+
+document.querySelector("#logoutButton").addEventListener("click", async () => {
+  try { await fetch("/manager/api/logout", { method: "POST" }); } catch { /* Leave the UI even if the network is unavailable. */ }
+  window.location.assign("/manager/login");
+});
 
 document.querySelector("#exportRules").addEventListener("click", () => {
   const payload = { schemaVersion: 1, exportedAt: new Date().toISOString(), defaults: defaultRules, customRules };
