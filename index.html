@@ -3,109 +3,88 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#090d18" />
+    <meta name="theme-color" content="#171818" />
     <title>Sonarr Proxy Manager</title>
-    <link rel="stylesheet" href="styles.css" />
+    <link rel="icon" href="data:," />
+    <link rel="stylesheet" href="/manager/styles.css" />
+    <script src="/manager/site-icon.js" defer></script>
+    <script src="/manager/app.js" defer></script>
   </head>
   <body>
-    <main class="app-shell">
-      <header class="topbar">
-        <a class="brand" href="#top" aria-label="Sonarr Proxy Manager home">
-          <span class="brand-mark ui-icon" style="--icon-url: url('/manager/assets/icons/065-cogwheel.png')" aria-hidden="true"></span>
-          <span><strong>Sonarr Proxy</strong><small>Manager</small></span>
-        </a>
-        <div class="topbar-actions">
-          <span class="connection"><i></i> Private workspace</span>
-          <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
-            <span class="ui-icon theme-icon" id="themeIcon" aria-hidden="true"></span><span id="themeLabel">Light</span>
-          </button>
-          <button class="logout-button" id="logoutButton" type="button">Log out</button>
+    <a class="skip-link" href="#main">Skip to rules</a>
+    <header class="topbar">
+      <a class="brand" href="/manager/" aria-label="Sonarr Proxy Manager home">
+        <span class="brand-symbol"><span class="ui-icon icon-brand" aria-hidden="true"></span></span>
+        <span><strong>Sonarr Proxy</strong><small>Manager</small></span>
+      </a>
+      <div class="topbar-actions">
+        <span class="save-status" id="saveStatus" role="status" aria-live="polite">Loading rules</span>
+        <button class="utility-button" id="themeToggle" type="button" aria-label="Switch to light mode"><span class="ui-icon" id="themeIcon" aria-hidden="true"></span><span id="themeLabel">Light</span></button>
+        <button class="utility-button" id="logoutButton" type="button" aria-label="Log out"><span class="ui-icon icon-login" aria-hidden="true"></span><span>Log out</span></button>
+      </div>
+    </header>
+    <div class="workspace">
+      <aside class="sidebar" aria-label="Rule library navigation">
+        <p class="sidebar-label">Library</p>
+        <nav class="library-nav" aria-label="Rule collections">
+          <button class="nav-item is-selected" type="button" data-view="all" aria-pressed="true"><span class="ui-icon icon-filter" aria-hidden="true"></span><span>All rules</span><span class="nav-count" id="navAllCount">8</span></button>
+          <button class="nav-item" type="button" data-view="default" aria-pressed="false"><span class="ui-icon icon-settings" aria-hidden="true"></span><span>Built-in</span><span class="nav-count" id="navDefaultCount">8</span></button>
+          <button class="nav-item" type="button" data-view="custom" aria-pressed="false"><span class="ui-icon icon-edit" aria-hidden="true"></span><span>Custom</span><span class="nav-count" id="navCustomCount">0</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="sidebar-help"><span class="ui-icon icon-lock" aria-hidden="true"></span><strong>Protected by default</strong><p>Unlock a built-in rule to edit it. Lock it again when you're finished.</p></div>
+          <button class="utility-button export-button" id="exportRules" type="button"><span class="ui-icon icon-download" aria-hidden="true"></span>Export configuration</button>
         </div>
-      </header>
-
-      <section class="hero" id="top">
-        <div>
-          <p class="eyebrow"><span class="ui-icon eyebrow-icon" style="--icon-url: url('/manager/assets/icons/076-construction.png')" aria-hidden="true"></span> Release control</p>
-          <h1>Keep the signal.<br /><em>Lose the noise.</em></h1>
-          <p class="hero-copy">Shape how Sonarr searches are classified, filtered, and delivered. Built-in rules drive the live proxy; your custom rules can refine the same release results.</p>
+      </aside>
+      <main class="main-content" id="main" tabindex="-1">
+        <div class="page-heading">
+          <div><p class="overline">Search configuration</p><h1 id="pageTitle">Rule library</h1><p>Control which releases reach Sonarr.</p></div>
+          <button class="button button-primary" id="openRuleForm" type="button" disabled><span class="ui-icon icon-add" aria-hidden="true"></span>Add rule</button>
         </div>
-        <div class="hero-stats" aria-label="Rule counts">
-          <div><strong id="defaultCount">8</strong><span>Built-in rules</span></div>
-          <div><strong id="customCount">0</strong><span>Custom rules</span></div>
-          <div><strong id="activeCount">8</strong><span>Rules active</span></div>
+        <div class="summary-strip" aria-label="Rule summary">
+          <div><span class="summary-dot" aria-hidden="true"></span><strong id="activeCount">8</strong><span>enabled</span></div>
+          <div><span class="ui-icon icon-lock" aria-hidden="true"></span><strong id="lockedCount">8</strong><span>locked</span></div>
+          <div><span class="ui-icon icon-edit" aria-hidden="true"></span><strong id="customCount">0</strong><span>custom</span></div>
         </div>
-      </section>
-
-      <section class="notice" aria-label="Rule editing help">
-        <span class="notice-icon ui-icon" style="--icon-url: url('/manager/assets/icons/002-filter.png')" aria-hidden="true"></span>
-        <p><strong>Lock icons control editing.</strong> Rules start unlocked. Lock a rule to protect its settings; switching a rule off changes proxy behavior without deleting it.</p>
-        <span class="save-status" id="saveStatus" role="status" aria-live="polite">Synced</span>
-      </section>
-
-      <nav class="section-nav" aria-label="Rule sections">
-        <a href="#defaults">Built-in rules <span id="navDefaultCount">8</span></a>
-        <a href="#custom">Custom rules <span id="navCustomCount">0</span></a>
-      </nav>
-
-      <section class="rule-section" id="defaults">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Proxy behavior</p>
-            <h2>Built-in rules</h2>
+        <p class="feedback" id="feedback" role="alert" hidden></p>
+        <section class="rule-library" aria-label="Rules">
+          <div class="library-toolbar">
+            <label class="search-field"><span class="ui-icon icon-search" aria-hidden="true"></span><span class="sr-only">Search rules</span><input id="ruleSearch" type="search" placeholder="Search rules..." autocomplete="off" /></label>
+            <label class="state-filter"><span class="sr-only">Filter by rule state</span><select id="stateFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="locked">Locked</option><option value="unlocked">Unlocked</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></label>
           </div>
-          <p>These settings are applied to Sonarr searches. Click a rule's text to edit its name or description; the lock icon protects those edits.</p>
+          <section class="rule-group" id="defaultSection" aria-labelledby="defaultHeading">
+            <div class="group-heading"><h2 id="defaultHeading">Built-in rules <span id="defaultCount">8</span></h2><p>The essentials for accurate searches</p></div>
+            <div class="list-columns" aria-hidden="true"><span>Rule</span><span>Behavior</span><span>Enabled</span><span>Edit access</span></div>
+            <div class="rule-list" id="defaultRules"></div>
+          </section>
+          <section class="rule-group" id="customSection" aria-labelledby="customHeading">
+            <div class="group-heading"><h2 id="customHeading">Custom rules <span id="customGroupCount">0</span></h2><p>Your release preferences</p></div>
+            <div class="rule-list" id="customRules"></div>
+            <div class="empty-state" id="emptyState"><span class="empty-symbol"><span class="ui-icon icon-add" aria-hidden="true"></span></span><div><h3>Make room for your preferences.</h3><p>Prefer a group, filter a title, or label matching releases.</p></div><button class="button button-secondary" id="emptyAddRule" type="button" disabled>Create a rule</button></div>
+          </section>
+          <div class="no-results" id="noResults" hidden><span class="ui-icon icon-search" aria-hidden="true"></span><h3>No matching rules</h3><p>Try another search or clear the filters.</p><button class="button button-secondary" id="clearFilters" type="button">Clear filters</button></div>
+          <div class="library-footer"><span id="resultCount" role="status" aria-live="polite">Loading rules...</span><span>Changes save automatically</span></div>
+        </section>
+        <p class="page-note">Built-in rules start locked. Use the lock control to enable editing.</p>
+      </main>
+    </div>
+    <dialog class="editor-drawer" id="ruleDialog" aria-labelledby="editorTitle">
+      <form id="ruleForm" class="editor-form">
+        <div class="editor-heading"><div><p class="overline" id="editorKind">Custom rule</p><h2 id="editorTitle">Add a rule</h2></div><button class="icon-button" id="closeRuleForm" type="button" aria-label="Close rule editor"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div>
+        <p class="editor-intro" id="editorIntro">Choose a title match and how the proxy should handle it.</p>
+        <div class="editor-fields">
+          <label>Rule name<input id="ruleName" name="name" maxlength="64" placeholder="Prefer a release group" required /></label>
+          <label id="descriptionField" hidden>Description<textarea id="ruleDescription" name="description" maxlength="240" rows="4"></textarea></label>
+          <fieldset id="customFields"><legend class="sr-only">Custom matching behavior</legend>
+            <label>Title contains<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas" required /><span class="field-hint">Matches title text, ignoring case.</span></label>
+            <label>Search scope<span class="select-wrap"><select id="ruleScope" name="scope"><option value="all">Episodes and seasons</option><option value="episodes">Single episodes only</option><option value="seasons">Season packs only</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></span></label>
+            <label>Action<span class="select-wrap"><select id="ruleAction" name="action"><option value="prefer">Prefer matching results</option><option value="exclude">Exclude matching results</option><option value="rewrite">Replace matching text</option><option value="annotate">Add a title label</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></span></label>
+            <label id="valueField" hidden><span id="valueLabel">Replacement text</span><input id="ruleValue" name="value" maxlength="120" /></label>
+          </fieldset>
         </div>
-        <div class="rule-grid" id="defaultRules"></div>
-      </section>
-
-      <section class="rule-section custom-section" id="custom">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Your layer</p>
-            <h2>Custom rules</h2>
-          </div>
-          <button class="button button-primary" id="openRuleForm" type="button"><span class="ui-icon button-icon" style="--icon-url: url('/manager/assets/icons/069-file.png')" aria-hidden="true"></span> Add rule</button>
-        </div>
-
-        <form class="rule-form" id="ruleForm" hidden>
-          <div class="form-heading">
-            <div><p class="eyebrow">New custom rule</p><h3>Refine matching releases</h3></div>
-            <button class="icon-button" id="closeRuleForm" type="button" aria-label="Close add rule form">×</button>
-          </div>
-          <div class="form-grid">
-            <label>Rule name<input id="ruleName" name="name" maxlength="64" placeholder="Prefer Judas releases" required /></label>
-            <label>Search scope<select id="ruleScope" name="scope">
-              <option value="all">Episodes and seasons</option>
-              <option value="episodes">Single episodes only</option>
-              <option value="seasons">Season packs only</option>
-            </select></label>
-            <label>Title contains<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas" required /></label>
-            <label>Then do this<select id="ruleAction" name="action">
-              <option value="prefer">Prefer matching results</option>
-              <option value="exclude">Exclude matching results</option>
-              <option value="rewrite">Replace matching text</option>
-              <option value="annotate">Add a title label</option>
-            </select></label>
-            <label class="value-field" id="valueField">Replacement or label<input id="ruleValue" name="value" maxlength="120" placeholder="Required for replace or label" /></label>
-          </div>
-          <div class="form-footer"><p>Rules run on the matched release title and are saved to the persistent manager volume.</p><button class="button button-primary" type="submit">Save rule</button></div>
-        </form>
-
-        <div class="custom-rules" id="customRules"></div>
-        <div class="empty-state" id="emptyState">
-          <span class="ui-icon empty-icon" style="--icon-url: url('/manager/assets/icons/069-file.png')" aria-hidden="true"></span>
-          <h3>No custom rules yet</h3>
-          <p>Prefer a release group, exclude a noisy pattern, or annotate matching titles without changing the built-in protections.</p>
-          <button class="button button-secondary" id="emptyAddRule" type="button">Add your first rule</button>
-        </div>
-      </section>
-
-      <section class="export-bar">
-        <div><p class="eyebrow">Portable configuration</p><h2>Take your rules with you.</h2><p>Export the built-in settings and custom rules as JSON.</p></div>
-        <button class="button button-secondary" id="exportRules" type="button">Export rules <span>↓</span></button>
-      </section>
-    </main>
-    <footer>Sonarr Proxy Manager <span>·</span> Rules persist on the manager volume.</footer>
-    <script src="app.js"></script>
+        <p class="editor-error" id="editorError" role="alert" hidden></p>
+        <div class="editor-footer"><button class="button button-secondary" id="cancelRuleForm" type="button">Cancel</button><button class="button button-primary" id="saveRuleButton" type="submit">Save rule</button></div>
+      </form>
+    </dialog>
   </body>
 </html>

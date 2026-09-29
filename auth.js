@@ -3,6 +3,7 @@ const LEGACY_THEME_KEY = "sonarr-nyaa-proxy-manager.theme";
 const form = document.querySelector("#loginForm");
 const error = document.querySelector("#loginError");
 const button = document.querySelector("#loginButton");
+const buttonLabel = document.querySelector("#loginButtonLabel");
 const themeToggle = document.querySelector("#themeToggle");
 const themeLabel = document.querySelector("#themeLabel");
 let currentTheme = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY) || "dark";
@@ -10,6 +11,7 @@ let currentTheme = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGAC
 function setTheme(theme) {
   currentTheme = theme;
   document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#171818" : "#f5f3ef";
   themeLabel.textContent = theme === "dark" ? "Light" : "Dark";
   document.querySelector("#themeIcon").style.setProperty(
     "--icon-url",
@@ -25,7 +27,7 @@ form.addEventListener("submit", async event => {
   event.preventDefault();
   error.hidden = true;
   button.disabled = true;
-  button.textContent = "Signing in...";
+  buttonLabel.textContent = "Signing in...";
   const formData = new FormData(form);
   try {
     const response = await fetch("/manager/api/login", {
@@ -45,7 +47,7 @@ form.addEventListener("submit", async event => {
     error.hidden = false;
   } finally {
     button.disabled = false;
-    button.textContent = "Sign in";
+    buttonLabel.textContent = "Sign in";
   }
 });
 

@@ -23,6 +23,7 @@ jobs:
         run: |
           node --check app.js
           node --check auth.js
+          node --check site-icon.js
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io

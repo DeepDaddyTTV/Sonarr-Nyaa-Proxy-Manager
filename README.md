@@ -6,7 +6,9 @@ Sonarr Proxy Manager is a Dockerized Torznab proxy for Nyaa.si with a small, aut
 
 Sonarr sends indexer searches to the proxy. The proxy searches Nyaa.si, expands season and episode query variants, anchors results to the requested series, and separates episode searches from season-pack searches. Dual Audio releases are announced as Japanese and English. Accepted results use Nyaa's torrent download URL.
 
-The manager at `/manager/` lets operators edit the built-in rule labels, lock rules against further edits, enable or disable built-in behavior, and create custom rules. Custom title rules can prefer, exclude, rewrite, or annotate matching releases for all searches, episode scans, or season scans. Settings are stored in `/data/custom-rules.json` on the persistent volume.
+The manager at `/manager/` provides a searchable rule library. Built-in rules start locked; click a rule's lock to unlock its name, description, and enabled setting. Custom rules start unlocked and can prefer, exclude, rewrite, or annotate matching releases for all searches, episode scans, or season scans. Settings are stored in `/data/custom-rules.json` on the persistent volume.
+
+When upgrading from the earlier manager, built-in rules are locked once without changing their enabled settings or custom rules. Subsequent lock and unlock choices persist. Dark and light themes use the same icon masks with theme-specific colors.
 
 ## Requirements
 

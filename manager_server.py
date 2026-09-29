@@ -20,6 +20,7 @@ from nyaa_proxy_runtime_patch import install
 
 
 ROOT = Path(__file__).resolve().parent
+SCHEMA_VERSION = 3
 RULES_PATH = Path(os.environ.get("RULES_PATH", "/data/custom-rules.json"))
 AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
@@ -46,13 +47,14 @@ RULE_CATALOG = {
 STATIC_FILES = {
     "/manager/styles.css": "styles.css",
     "/manager/auth.js": "auth.js",
+    "/manager/site-icon.js": "site-icon.js",
 }
 ICON_FILES = {
     name: f"assets/icons/{name}"
     for name in (
         "002-filter.png", "007-trash-1.png", "020-pen.png", "033-lock.png",
         "034-lock-1.png", "036-login.png", "069-file.png", "076-construction.png",
-        "065-cogwheel.png", "050-dark.png", "sun.png",
+        "065-cogwheel.png", "050-dark.png", "sun.png", "electronic.png",
     )
 }
 
@@ -61,7 +63,7 @@ def default_rule_settings() -> dict[str, dict]:
     return {
         rule_id: {
             "enabled": True,
-            "locked": False,
+            "locked": True,
             "name": name,
             "description": description,
         }
@@ -122,11 +124,14 @@ def normalize_rules_config(payload: object, *, strict: bool = False) -> dict:
             )
             if migrated:
                 custom.append(migrated)
-        return {"schemaVersion": 2, "defaults": default_rule_settings(), "customRules": custom}
+        return {"schemaVersion": SCHEMA_VERSION, "defaults": default_rule_settings(), "customRules": custom}
     if not isinstance(payload, dict):
         if strict:
             raise ValueError("Request body must be an object")
         payload = {}
+
+    if strict and payload.get("schemaVersion", SCHEMA_VERSION) != SCHEMA_VERSION:
+        raise ValueError("Reload the manager before saving this configuration")
 
     incoming_defaults = payload.get("defaults", {})
     if strict and not isinstance(incoming_defaults, dict):
@@ -156,6 +161,11 @@ def normalize_rules_config(payload: object, *, strict: bool = False) -> dict:
                             raise ValueError(f"{rule_id}.{key} must be a string")
                         continue
                     defaults[rule_id][key] = settings[key].strip()[:limit]
+    # Older managers initialized every built-in rule as unlocked. Protect them
+    # once on upgrade, then preserve deliberate unlocks in version 3 settings.
+    if not strict and payload.get("schemaVersion") != SCHEMA_VERSION:
+        for settings in defaults.values():
+            settings["locked"] = True
     custom = payload.get("customRules", [])
     if not isinstance(custom, list) or len(custom) > 200:
         if strict:
@@ -177,7 +187,7 @@ def normalize_rules_config(payload: object, *, strict: bool = False) -> dict:
             continue
         seen_ids.add(normalized["id"])
         normalized_custom.append(normalized)
-    return {"schemaVersion": 2, "defaults": defaults, "customRules": normalized_custom}
+    return {"schemaVersion": SCHEMA_VERSION, "defaults": defaults, "customRules": normalized_custom}
 
 
 def read_rules_config() -> dict:

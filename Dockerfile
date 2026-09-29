@@ -5,7 +5,7 @@ LABEL org.opencontainers.image.source="https://github.com/DeepDaddyTTV/Sonarr-Pr
 
 WORKDIR /app
 COPY nyaa_season_proxy.py nyaa_proxy_runtime_patch.py manager_server.py ./
-COPY index.html login.html styles.css app.js auth.js ./
+COPY index.html login.html styles.css app.js auth.js site-icon.js ./
 COPY assets/icons ./assets/icons
 
 RUN mkdir -p /data \

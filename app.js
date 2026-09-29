@@ -1,332 +1,312 @@
-const STORAGE_KEY = "sonarr-proxy-manager.rules.v2";
+const SCHEMA_VERSION = 3;
+const STORAGE_KEY = "sonarr-proxy-manager.rules.v3";
 const THEME_KEY = "sonarr-proxy-manager.theme";
-const LEGACY_STORAGE_KEY = "sonarr-nyaa-proxy-manager.rules.v1";
-const LEGACY_THEME_KEY = "sonarr-nyaa-proxy-manager.theme";
-const ICONS = {
-  lock: "033-lock.png",
-  unlock: "034-lock-1.png",
-  edit: "020-pen.png",
-  delete: "007-trash-1.png",
-  moon: "050-dark.png",
-  sun: "sun.png",
-};
 const ruleCatalog = [
-  { id: "year-hygiene", type: "title rewrite", name: "Strip release years", description: "Removes bracketed years before classification so release years are not mistaken for episode numbers." },
-  { id: "season-classification", type: "season pack", name: "Normalize season packs", description: "Recognizes Season 1, S01, and ordinal seasons, then rewrites accepted packs to a Sonarr-safe Sxx title." },
-  { id: "episode-isolation", type: "episode filter", name: "Episode scans stay episodic", description: "Only returns an exact SxxExx release for an episode search. Packs and episode ranges are excluded." },
-  { id: "season-isolation", type: "season filter", name: "Season scans stay seasonal", description: "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season." },
-  { id: "series-anchor", type: "series safety", name: "Anchor the series match", description: "Requires meaningful title words to match, reducing substring results for a different show." },
-  { id: "query-expansion", type: "search strategy", name: "Expand release queries", description: "Searches padded, unpadded, ordinal, and year-aware season forms to retain additional release-group results." },
-  { id: "direct-torrent", type: "delivery", name: "Provide torrent links", description: "Uses Nyaa's torrent download URL for accepted releases." },
-  { id: "dual-audio", type: "languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
+  { id: "year-hygiene", type: "Title rewrite", name: "Strip release years", description: "Removes bracketed years before classification so release years are not mistaken for episode numbers." },
+  { id: "season-classification", type: "Season pack", name: "Normalize season packs", description: "Recognizes Season 1, S01, and ordinal seasons, then rewrites accepted packs to a Sonarr-safe Sxx title." },
+  { id: "episode-isolation", type: "Episode filter", name: "Episode scans stay episodic", description: "Only returns the exact requested SxxExx release for an episode search. Packs and episode ranges are excluded." },
+  { id: "season-isolation", type: "Season filter", name: "Season scans stay seasonal", description: "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season." },
+  { id: "series-anchor", type: "Series safety", name: "Anchor the series match", description: "Requires meaningful title words to match, reducing substring results for a different show." },
+  { id: "query-expansion", type: "Search strategy", name: "Expand release queries", description: "Searches padded, unpadded, ordinal, and year-aware season forms to retain additional release-group results." },
+  { id: "direct-torrent", type: "Delivery", name: "Provide torrent links", description: "Uses Nyaa's torrent download URL for accepted releases." },
+  { id: "dual-audio", type: "Languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
 ];
+const byId = id => document.getElementById(id);
+const els = Object.fromEntries([
+  "defaultRules", "customRules", "defaultSection", "customSection", "emptyState", "noResults",
+  "ruleDialog", "ruleForm", "ruleName", "ruleDescription", "descriptionField", "customFields",
+  "ruleMatch", "ruleScope", "ruleAction", "ruleValue", "valueField", "valueLabel", "editorError",
+  "themeToggle", "themeIcon", "themeLabel", "saveStatus", "feedback", "ruleSearch", "stateFilter",
+].map(id => [id, byId(id)]));
 
-const els = {
-  defaultRules: document.querySelector("#defaultRules"),
-  customRules: document.querySelector("#customRules"),
-  emptyState: document.querySelector("#emptyState"),
-  form: document.querySelector("#ruleForm"),
-  themeToggle: document.querySelector("#themeToggle"),
-  themeLabel: document.querySelector("#themeLabel"),
-  themeIcon: document.querySelector("#themeIcon"),
-  saveStatus: document.querySelector("#saveStatus"),
-  defaultCount: document.querySelector("#defaultCount"),
-  customCount: document.querySelector("#customCount"),
-  activeCount: document.querySelector("#activeCount"),
-  navDefaultCount: document.querySelector("#navDefaultCount"),
-  navCustomCount: document.querySelector("#navCustomCount"),
-  ruleAction: document.querySelector("#ruleAction"),
-  valueField: document.querySelector("#valueField"),
-  ruleValue: document.querySelector("#ruleValue"),
-};
-
-const defaultSettings = Object.fromEntries(ruleCatalog.map(rule => [rule.id, {
-  enabled: true,
-  locked: false,
-  name: rule.name,
-  description: rule.description,
-}]));
-let customRules = [];
-let editingRule = null;
-let currentTheme = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY) || "dark";
-
-function escapeHtml(value) {
-  return String(value ?? "").replace(/[&<>'"]/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" })[char]);
+function readStorage(key) { try { return localStorage.getItem(key); } catch { return null; } }
+function writeStorage(key, value) { try { localStorage.setItem(key, value); } catch { /* Server saves remain available without browser storage. */ } }
+function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
+function icon(name) { return `<span class="ui-icon icon-${name}" aria-hidden="true"></span>`; }
+function initialConfig() {
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    defaults: Object.fromEntries(ruleCatalog.map(rule => [rule.id, { enabled: true, locked: true, name: rule.name, description: rule.description }])),
+    customRules: [],
+  };
 }
-
-function icon(name, className = "") {
-  return `<span class="ui-icon ${className}" style="--icon-url: url('/manager/assets/icons/${ICONS[name]}')" aria-hidden="true"></span>`;
-}
-
-function applyConfig(payload) {
+function normalizeConfig(payload) {
+  const normalized = initialConfig();
   if (payload && typeof payload.defaults === "object" && !Array.isArray(payload.defaults)) {
     for (const rule of ruleCatalog) {
       const incoming = payload.defaults[rule.id];
-      if (incoming && typeof incoming === "object") {
-        defaultSettings[rule.id] = { ...defaultSettings[rule.id], ...incoming };
-      }
+      if (incoming && typeof incoming === "object") normalized.defaults[rule.id] = { ...normalized.defaults[rule.id], ...incoming };
+      if (payload.schemaVersion !== SCHEMA_VERSION) normalized.defaults[rule.id].locked = true;
     }
   }
-  if (Array.isArray(payload?.customRules)) {
-    customRules = payload.customRules;
-  } else if (Array.isArray(payload)) {
-    customRules = payload.map(rule => ({
-      id: rule.id || crypto.randomUUID(),
-      name: rule.name || "Imported rule",
-      match: rule.match || "",
-      action: rule.action === "keep" ? "prefer" : rule.action || "exclude",
-      scope: "all",
-      value: rule.value || "",
-      enabled: rule.enabled !== false,
-      locked: false,
-    }));
-  }
+  if (Array.isArray(payload?.customRules)) normalized.customRules = payload.customRules;
+  return normalized;
 }
 
-function saveRules() {
-  const payload = { schemaVersion: 2, defaults: defaultSettings, customRules };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
-  els.saveStatus.textContent = "Saving";
-  els.saveStatus.classList.add("is-saving");
-  return fetch("/manager/api/rules", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).then(async response => {
-    if (response.status === 401 || response.status === 503) {
-      window.location.assign("/manager/login");
-      return;
-    }
-    if (!response.ok) {
-      const result = await response.json().catch(() => ({}));
-      throw new Error(result.error || "Could not save rules");
-    }
-    els.saveStatus.textContent = "Synced";
-    els.saveStatus.classList.remove("is-saving", "is-error");
-  }).catch(error => {
-    els.saveStatus.textContent = "Not synced";
-    els.saveStatus.title = error.message;
-    els.saveStatus.classList.remove("is-saving");
-    els.saveStatus.classList.add("is-error");
-  });
+let config = initialConfig();
+let lastSaved = structuredClone(config);
+let canSave = false;
+let isSaving = false;
+let currentView = "all";
+let editingRule = null;
+let currentTheme = readStorage(THEME_KEY) || readStorage("sonarr-nyaa-proxy-manager.theme") || "dark";
+
+function setStatus(message, state = "") {
+  els.saveStatus.textContent = message;
+  els.saveStatus.classList.toggle("is-saving", state === "saving");
+  els.saveStatus.classList.toggle("is-error", state === "error");
 }
+function showError(message) { els.feedback.textContent = message; els.feedback.hidden = !message; }
 
 async function hydrateRules() {
   try {
     const response = await fetch("/manager/api/rules");
-    if (response.status === 401 || response.status === 503) {
-      window.location.assign("/manager/login");
-      return;
-    }
-    if (!response.ok) throw new Error("Rules API unavailable");
-    const payload = await response.json();
-    applyConfig(payload);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ defaults: defaultSettings, customRules }));
-    render();
-  } catch {
-    try {
-      const cached = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-      if (cached) applyConfig(JSON.parse(cached));
-    } catch { /* Keep the built-in defaults if the browser cache is invalid. */ }
-    els.saveStatus.textContent = "Offline";
+    if (response.status === 401 || response.status === 503) { window.location.assign("/manager/login"); return; }
+    if (!response.ok) throw new Error("Could not load rules. Reload the page to try again.");
+    config = normalizeConfig(await response.json());
+    lastSaved = structuredClone(config);
+    writeStorage(STORAGE_KEY, JSON.stringify(config));
+    canSave = true;
+    setStatus("All changes saved");
+  } catch (error) {
+    setStatus("Offline", "error");
+    showError(error.message || "Could not load rules. Reload the page to try again.");
+  }
+  render();
+}
+
+async function saveChanges(change) {
+  if (!canSave || isSaving) return false;
+  const candidate = structuredClone(config);
+  change(candidate);
+  config = candidate;
+  isSaving = true;
+  setStatus("Saving...", "saving");
+  showError("");
+  render();
+  try {
+    const response = await fetch("/manager/api/rules", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(candidate),
+    });
+    if (response.status === 401 || response.status === 503) { window.location.assign("/manager/login"); return false; }
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(payload.error || "Could not save changes. Please try again.");
+    config = normalizeConfig(payload);
+    lastSaved = structuredClone(config);
+    writeStorage(STORAGE_KEY, JSON.stringify(config));
+    setStatus("All changes saved");
+    return true;
+  } catch (error) {
+    config = structuredClone(lastSaved);
+    setStatus("Changes not saved", "error");
+    showError(error.message);
+    if (els.ruleDialog.open) { els.editorError.textContent = error.message; els.editorError.hidden = false; }
+    return false;
+  } finally {
+    isSaving = false;
     render();
   }
 }
 
-function ruleEditor(rule, kind) {
-  return `<div class="inline-editor" data-editor="${kind}" data-id="${escapeHtml(rule.id)}">
-    <label>Name<input name="name" maxlength="64" value="${escapeHtml(rule.name)}" required /></label>
-    <label>Description<textarea name="description" maxlength="240" rows="3" required>${escapeHtml(rule.description || "")}</textarea></label>
-    <div class="editor-actions"><button class="button button-primary" type="button" data-action="save-edit">Save changes</button><button class="button button-secondary" type="button" data-action="cancel-edit">Cancel</button></div>
-  </div>`;
-}
+function findRule(kind, id, source = config) { return kind === "default" ? source.defaults[id] : source.customRules.find(rule => rule.id === id); }
+function scopeLabel(scope) { return ({ all: "Episodes and seasons", episodes: "Episode searches", seasons: "Season searches" })[scope] || "Episodes and seasons"; }
+function actionLabel(action) { return ({ exclude: "Exclude", prefer: "Prefer", rewrite: "Rewrite", annotate: "Annotate" })[action] || action; }
 
-function defaultRuleCard(rule) {
-  const settings = defaultSettings[rule.id];
-  const locked = settings.locked;
-  const editing = editingRule?.kind === "default" && editingRule.id === rule.id;
-  return `<article class="rule-card ${settings.enabled ? "is-enabled" : "is-disabled"}" data-kind="default" data-id="${rule.id}">
-    <div class="rule-meta"><span class="tag">${escapeHtml(rule.type)}</span><div class="card-actions">
-      ${locked ? "" : `<button class="icon-action" type="button" data-action="edit" aria-label="Edit ${escapeHtml(settings.name)}" title="Edit rule">${icon("edit")}</button>`}
-      <button class="icon-action lock-action" type="button" data-action="lock" aria-label="${locked ? "Unlock" : "Lock"} ${escapeHtml(settings.name)}" aria-pressed="${locked}" title="${locked ? "Unlock editing" : "Lock editing"}">${icon(locked ? "lock" : "unlock")}</button>
-    </div></div>
-    <label class="rule-state"><input type="checkbox" data-action="enabled" ${settings.enabled ? "checked" : ""} ${locked ? "disabled" : ""} /><span><i></i>${settings.enabled ? "Active" : "Off"}</span></label>
-    <button class="rule-content" type="button" data-action="edit" ${locked ? "disabled" : ""} aria-label="Edit ${escapeHtml(settings.name)}">
-      <span class="rule-name">${escapeHtml(settings.name)}</span><span class="rule-description">${escapeHtml(settings.description)}</span>
-    </button>
-    ${editing ? ruleEditor(settings, "default") : ""}
-  </article>`;
-}
-
-function scopeLabel(scope) {
-  return ({ all: "all searches", episodes: "episode scans", seasons: "season scans" })[scope] || "all searches";
-}
-
-function actionLabel(action) {
-  return ({ exclude: "exclude", prefer: "prefer", rewrite: "rewrite", annotate: "annotate" })[action] || action;
-}
-
-function customRuleEditor(rule) {
-  return `<div class="inline-editor custom-editor" data-editor="custom" data-id="${escapeHtml(rule.id)}">
-    <label>Name<input name="name" maxlength="64" value="${escapeHtml(rule.name)}" required /></label>
-    <label>Title contains<input name="match" maxlength="120" value="${escapeHtml(rule.match)}" required /></label>
-    <label>Scope<select name="scope"><option value="all" ${rule.scope === "all" ? "selected" : ""}>Episodes and seasons</option><option value="episodes" ${rule.scope === "episodes" ? "selected" : ""}>Single episodes only</option><option value="seasons" ${rule.scope === "seasons" ? "selected" : ""}>Season packs only</option></select></label>
-    <label>Action<select name="action"><option value="prefer" ${rule.action === "prefer" ? "selected" : ""}>Prefer matching results</option><option value="exclude" ${rule.action === "exclude" ? "selected" : ""}>Exclude matching results</option><option value="rewrite" ${rule.action === "rewrite" ? "selected" : ""}>Replace matching text</option><option value="annotate" ${rule.action === "annotate" ? "selected" : ""}>Add a title label</option></select></label>
-    <label class="editor-value">Replacement or label<input name="value" maxlength="120" value="${escapeHtml(rule.value || "")}" /></label>
-    <div class="editor-actions"><button class="button button-primary" type="button" data-action="save-edit">Save changes</button><button class="button button-secondary" type="button" data-action="cancel-edit">Cancel</button></div>
-  </div>`;
-}
-
-function customRuleCard(rule) {
+function ruleRow(rule, kind, number, type) {
   const locked = rule.locked === true;
-  const editing = editingRule?.kind === "custom" && editingRule.id === rule.id;
-  return `<article class="custom-rule ${rule.enabled ? "is-enabled" : "is-disabled"}" data-kind="custom" data-id="${escapeHtml(rule.id)}">
-    <label class="rule-state"><input type="checkbox" data-action="enabled" ${rule.enabled ? "checked" : ""} ${locked ? "disabled" : ""} /><span><i></i>${rule.enabled ? "Active" : "Off"}</span></label>
-    <button class="rule-content" type="button" data-action="edit" ${locked ? "disabled" : ""} aria-label="Edit ${escapeHtml(rule.name)}">
-      <span class="rule-name">${escapeHtml(rule.name)}</span><span class="rule-description">${escapeHtml(rule.action)} · ${escapeHtml(scopeLabel(rule.scope))} · contains “${escapeHtml(rule.match)}”</span>
-    </button>
-    <div class="custom-actions">
-      ${locked ? "" : `<button class="icon-action" type="button" data-action="edit" aria-label="Edit ${escapeHtml(rule.name)}" title="Edit rule">${icon("edit")}</button>`}
-      <button class="icon-action lock-action" type="button" data-action="lock" aria-label="${locked ? "Unlock" : "Lock"} ${escapeHtml(rule.name)}" aria-pressed="${locked}" title="${locked ? "Unlock editing" : "Lock editing"}">${icon(locked ? "lock" : "unlock")}</button>
-      <button class="icon-action" type="button" data-action="delete" aria-label="Remove ${escapeHtml(rule.name)}" title="Remove rule" ${locked ? "disabled" : ""}>${icon("delete")}</button>
-    </div>
-    ${editing ? customRuleEditor(rule) : ""}
+  const blocked = !canSave || isSaving;
+  const disabled = blocked || locked;
+  const description = kind === "default" ? rule.description : `Title contains "${rule.match}". ${scopeLabel(rule.scope)}${rule.value ? ` / ${rule.value}` : ""}.`;
+  return `<article class="rule-row ${kind === "custom" ? "custom-row" : ""} ${rule.enabled ? "" : "is-disabled"}" data-kind="${kind}" data-id="${escapeHtml(rule.id)}">
+    <div class="rule-title"><span class="rule-number" aria-hidden="true">${number}</span><div class="rule-copy"><button class="rule-name" type="button" data-action="edit" ${disabled ? "disabled" : ""} aria-label="Edit ${escapeHtml(rule.name)}">${escapeHtml(rule.name)}</button><p class="rule-description">${escapeHtml(description)}</p></div></div>
+    <span class="behavior-tag">${escapeHtml(type)}</span>
+    <label class="rule-state"><input type="checkbox" data-action="enabled" aria-label="Enable ${escapeHtml(rule.name)}" ${rule.enabled ? "checked" : ""} ${disabled ? "disabled" : ""} /><span class="switch-track" aria-hidden="true"></span><span class="switch-label" aria-hidden="true">${rule.enabled ? "On" : "Off"}</span></label>
+    <div class="access-actions"><button class="icon-button" type="button" data-action="edit" aria-label="Edit ${escapeHtml(rule.name)}" title="${locked ? "Unlock this rule to edit" : "Edit rule"}" ${disabled ? "disabled" : ""}>${icon("edit")}</button><button class="lock-button" type="button" data-action="lock" aria-label="${locked ? "Unlock" : "Lock"} ${escapeHtml(rule.name)}" aria-pressed="${locked}" title="${locked ? "Unlock editing" : "Lock editing"}" ${blocked ? "disabled" : ""}>${icon(locked ? "lock" : "unlock")}${kind === "default" ? `<span>${locked ? "Locked" : "Unlocked"}</span>` : ""}</button>${kind === "custom" ? `<button class="icon-button" type="button" data-action="delete" aria-label="Remove ${escapeHtml(rule.name)}" title="Remove rule" ${disabled ? "disabled" : ""}>${icon("delete")}</button>` : ""}</div>
   </article>`;
+}
+
+function matchesFilters(rule) {
+  const query = els.ruleSearch.value.trim().toLowerCase();
+  const state = els.stateFilter.value;
+  if (query && ![rule.name, rule.description, rule.type, rule.match, rule.action, rule.scope, rule.value].filter(Boolean).join(" ").toLowerCase().includes(query)) return false;
+  if (state === "enabled" && !rule.enabled) return false;
+  if (state === "disabled" && rule.enabled) return false;
+  if (state === "locked" && !rule.locked) return false;
+  if (state === "unlocked" && rule.locked) return false;
+  return true;
 }
 
 function render() {
-  els.defaultRules.innerHTML = ruleCatalog.map(defaultRuleCard).join("");
-  els.customRules.innerHTML = customRules.map(customRuleCard).join("");
-  els.emptyState.hidden = customRules.length > 0;
-  els.defaultCount.textContent = ruleCatalog.length;
-  els.customCount.textContent = customRules.length;
-  els.activeCount.textContent = [...Object.values(defaultSettings), ...customRules].filter(rule => rule.enabled).length;
-  els.navDefaultCount.textContent = ruleCatalog.length;
-  els.navCustomCount.textContent = customRules.length;
+  const defaults = ruleCatalog.map((rule, index) => ({ ...rule, ...config.defaults[rule.id], number: String(index + 1).padStart(2, "0") }));
+  const visibleDefaults = currentView === "custom" ? [] : defaults.filter(matchesFilters);
+  const visibleCustom = currentView === "default" ? [] : config.customRules.filter(matchesFilters);
+  const emptyCustom = currentView !== "default" && config.customRules.length === 0 && !els.ruleSearch.value.trim() && els.stateFilter.value === "all";
+  const visibleCount = visibleDefaults.length + visibleCustom.length;
+  const totalCount = (currentView === "custom" ? 0 : defaults.length) + (currentView === "default" ? 0 : config.customRules.length);
+  const allRules = [...defaults, ...config.customRules];
+  els.defaultRules.innerHTML = visibleDefaults.map(rule => ruleRow(rule, "default", rule.number, rule.type)).join("");
+  els.customRules.innerHTML = visibleCustom.map((rule, index) => ruleRow(rule, "custom", `C${String(index + 1).padStart(2, "0")}`, actionLabel(rule.action))).join("");
+  els.defaultSection.hidden = visibleDefaults.length === 0;
+  els.customSection.hidden = visibleCustom.length === 0 && !emptyCustom;
+  els.emptyState.hidden = !emptyCustom;
+  els.noResults.hidden = visibleCount > 0 || emptyCustom;
+  byId("defaultCount").textContent = visibleDefaults.length;
+  byId("customGroupCount").textContent = visibleCustom.length;
+  byId("navAllCount").textContent = allRules.length;
+  byId("navDefaultCount").textContent = defaults.length;
+  byId("navCustomCount").textContent = config.customRules.length;
+  byId("customCount").textContent = config.customRules.length;
+  byId("activeCount").textContent = allRules.filter(rule => rule.enabled).length;
+  byId("lockedCount").textContent = allRules.filter(rule => rule.locked).length;
+  byId("resultCount").textContent = `${visibleCount} of ${totalCount} ${totalCount === 1 ? "rule" : "rules"}`;
+  byId("pageTitle").textContent = ({ all: "Rule library", default: "Built-in rules", custom: "Custom rules" })[currentView];
+  document.querySelectorAll("[data-view]").forEach(button => {
+    const selected = button.dataset.view === currentView;
+    button.classList.toggle("is-selected", selected);
+    button.setAttribute("aria-pressed", String(selected));
+  });
+  for (const id of ["openRuleForm", "emptyAddRule", "saveRuleButton"]) byId(id).disabled = !canSave || isSaving;
+  for (const id of ["closeRuleForm", "cancelRuleForm"]) byId(id).disabled = isSaving;
+  els.ruleName.disabled = isSaving;
+  els.ruleDescription.disabled = isSaving || editingRule?.kind !== "default";
+  els.customFields.disabled = isSaving || editingRule?.kind === "default";
+  updateValueRequirement();
+  byId("saveRuleButton").textContent = isSaving ? "Saving..." : "Save rule";
 }
 
 function setTheme(theme) {
-  currentTheme = theme;
-  document.documentElement.dataset.theme = theme;
-  els.themeLabel.textContent = theme === "dark" ? "Light" : "Dark";
-  els.themeIcon.style.setProperty("--icon-url", `url('/manager/assets/icons/${theme === "dark" ? ICONS.sun : ICONS.moon}')`);
-  els.themeToggle.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
-  localStorage.setItem(THEME_KEY, theme);
+  currentTheme = theme === "light" ? "light" : "dark";
+  document.documentElement.dataset.theme = currentTheme;
+  document.querySelector('meta[name="theme-color"]').content = currentTheme === "dark" ? "#171818" : "#f5f3ef";
+  els.themeLabel.textContent = currentTheme === "dark" ? "Light" : "Dark";
+  els.themeIcon.style.setProperty("--icon-url", `url('/manager/assets/icons/${currentTheme === "dark" ? "sun.png" : "050-dark.png"}')`);
+  els.themeToggle.setAttribute("aria-label", `Switch to ${currentTheme === "dark" ? "light" : "dark"} mode`);
+  writeStorage(THEME_KEY, currentTheme);
 }
-
-function showForm() {
-  els.form.hidden = false;
-  document.querySelector("#ruleName").focus();
-  els.form.scrollIntoView({ behavior: "smooth", block: "center" });
-}
-
-function hideForm() { els.form.hidden = true; els.form.reset(); updateValueRequirement(); }
 
 function updateValueRequirement() {
-  const needsValue = ["rewrite", "annotate"].includes(els.ruleAction.value);
+  const needsValue = ["rewrite", "annotate"].includes(els.ruleAction.value) && editingRule?.kind !== "default";
   els.ruleValue.required = needsValue;
-  els.ruleValue.disabled = !needsValue;
-  els.valueField.classList.toggle("is-muted", !needsValue);
+  els.ruleValue.disabled = !needsValue || isSaving;
+  els.valueField.hidden = !needsValue;
+  els.valueLabel.textContent = els.ruleAction.value === "annotate" ? "Title label" : "Replacement text";
 }
 
-function findRule(kind, id) {
-  return kind === "default" ? defaultSettings[id] : customRules.find(rule => rule.id === id);
+function openEditor(kind = "custom", id = null) {
+  if (!canSave || isSaving) return;
+  const rule = id ? findRule(kind, id) : null;
+  if (id && (!rule || rule.locked)) return;
+  editingRule = { kind, id };
+  const builtin = kind === "default";
+  els.ruleForm.reset();
+  els.editorError.hidden = true;
+  byId("editorTitle").textContent = id ? "Edit rule" : "Add a rule";
+  byId("editorKind").textContent = builtin ? "Built-in rule" : "Custom rule";
+  byId("editorIntro").textContent = builtin ? "Update this rule's name and description. Its behavior is controlled by the enabled switch in the library." : "Choose a title match and how the proxy should handle it.";
+  els.descriptionField.hidden = !builtin;
+  els.ruleDescription.disabled = !builtin;
+  els.customFields.hidden = builtin;
+  els.customFields.disabled = builtin;
+  els.ruleName.value = rule?.name || "";
+  els.ruleDescription.value = rule?.description || "";
+  els.ruleMatch.value = rule?.match || "";
+  els.ruleScope.value = rule?.scope || "all";
+  els.ruleAction.value = rule?.action || "prefer";
+  els.ruleValue.value = rule?.value || "";
+  updateValueRequirement();
+  els.ruleDialog.showModal();
+  els.ruleName.focus();
 }
 
-function handleRuleClick(event, container) {
-  const article = event.target.closest("article[data-kind][data-id]");
-  if (!article || !container.contains(article)) return;
+function closeEditor() { if (!isSaving) els.ruleDialog.close(); }
+function focusRule(kind, id, action) { document.querySelector(`article[data-kind="${kind}"][data-id="${CSS.escape(id)}"] [data-action="${action}"]`)?.focus({ preventScroll: true }); }
+
+async function handleRuleClick(event) {
+  const button = event.target.closest("button[data-action]");
+  const article = button?.closest("article[data-kind][data-id]");
+  if (!article || !canSave || isSaving || button.disabled) return;
   const { kind, id } = article.dataset;
   const rule = findRule(kind, id);
-  const actionButton = event.target.closest("[data-action]");
-  const action = actionButton?.dataset.action;
-
-  if (action === "lock") {
-    rule.locked = !rule.locked;
-    if (rule.locked && editingRule?.kind === kind && editingRule.id === id) editingRule = null;
-  } else if (action === "enabled") {
-    rule.enabled = actionButton.checked;
-  } else if (action === "edit") {
-    if (rule.locked) return;
-    editingRule = editingRule?.kind === kind && editingRule.id === id ? null : { kind, id };
-  } else if (action === "delete" && kind === "custom" && !rule.locked) {
-    customRules = customRules.filter(item => item.id !== id);
-    if (editingRule?.id === id) editingRule = null;
-  } else if (action === "cancel-edit") {
-    editingRule = null;
-  } else if (action === "save-edit") {
-    const editor = actionButton.closest(".inline-editor");
-    const read = name => editor.querySelector(`[name="${name}"]`)?.value?.trim() ?? "";
-    if (kind === "default") {
-      rule.name = read("name").slice(0, 64);
-      rule.description = read("description").slice(0, 240);
-    } else {
-      Object.assign(rule, {
-        name: read("name").slice(0, 64),
-        match: read("match").slice(0, 120),
-        scope: read("scope"),
-        action: read("action"),
-        value: read("value").slice(0, 120),
-      });
-    }
-    if (!rule.name || (kind === "custom" && (!rule.match || (["rewrite", "annotate"].includes(rule.action) && !rule.value)))) {
-      els.saveStatus.textContent = "Check rule fields";
-      els.saveStatus.classList.add("is-error");
-      return;
-    }
-    editingRule = null;
-  } else if (!actionButton && event.target.closest(".rule-content")) {
-    if (rule.locked) return;
-    editingRule = { kind, id };
+  if (!rule) return;
+  if (button.dataset.action === "edit") { openEditor(kind, id); return; }
+  if (button.dataset.action === "lock") {
+    await saveChanges(candidate => { findRule(kind, id, candidate).locked = !rule.locked; });
+    focusRule(kind, id, "lock");
+  } else if (button.dataset.action === "delete" && kind === "custom" && !rule.locked) {
+    await saveChanges(candidate => { candidate.customRules = candidate.customRules.filter(item => item.id !== id); });
+    byId("openRuleForm").focus({ preventScroll: true });
   }
-  render();
-  if (["lock", "enabled", "delete", "save-edit"].includes(action)) saveRules();
-  else if (action === "edit" || action === "cancel-edit") return;
 }
 
-document.querySelector("#openRuleForm").addEventListener("click", showForm);
-document.querySelector("#emptyAddRule").addEventListener("click", showForm);
-document.querySelector("#closeRuleForm").addEventListener("click", hideForm);
-els.ruleAction.addEventListener("change", updateValueRequirement);
-els.form.addEventListener("submit", event => {
-  event.preventDefault();
-  const formData = new FormData(els.form);
-  customRules.unshift({
-    id: crypto.randomUUID(),
-    name: String(formData.get("name")).trim(),
-    match: String(formData.get("match")).trim(),
-    scope: String(formData.get("scope")),
-    action: String(formData.get("action")),
-    value: String(formData.get("value") || "").trim(),
-    enabled: true,
-    locked: false,
-  });
-  editingRule = null;
-  saveRules(); render(); hideForm();
-});
-els.defaultRules.addEventListener("click", event => handleRuleClick(event, els.defaultRules));
-els.customRules.addEventListener("click", event => handleRuleClick(event, els.customRules));
-els.themeToggle.addEventListener("click", () => setTheme(currentTheme === "dark" ? "light" : "dark"));
+async function handleRuleChange(event) {
+  const input = event.target.closest('input[data-action="enabled"]');
+  const article = input?.closest("article[data-kind][data-id]");
+  if (!article || !canSave || isSaving || input.disabled) return;
+  const { kind, id } = article.dataset;
+  const rule = findRule(kind, id);
+  if (!rule || rule.locked) return;
+  const enabled = input.checked;
+  await saveChanges(candidate => { findRule(kind, id, candidate).enabled = enabled; });
+  focusRule(kind, id, "enabled");
+}
 
-document.querySelector("#logoutButton").addEventListener("click", async () => {
-  try { await fetch("/manager/api/logout", { method: "POST" }); } catch { /* Leave the UI even if the network is unavailable. */ }
+for (const container of [els.defaultRules, els.customRules]) {
+  container.addEventListener("click", handleRuleClick);
+  container.addEventListener("change", handleRuleChange);
+}
+document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => { currentView = button.dataset.view; render(); }));
+els.ruleSearch.addEventListener("input", render);
+els.stateFilter.addEventListener("change", render);
+byId("clearFilters").addEventListener("click", () => { els.ruleSearch.value = ""; els.stateFilter.value = "all"; render(); els.ruleSearch.focus(); });
+for (const id of ["openRuleForm", "emptyAddRule"]) byId(id).addEventListener("click", () => openEditor());
+for (const id of ["closeRuleForm", "cancelRuleForm"]) byId(id).addEventListener("click", closeEditor);
+els.ruleAction.addEventListener("change", updateValueRequirement);
+els.ruleDialog.addEventListener("cancel", event => { if (isSaving) event.preventDefault(); });
+els.ruleDialog.addEventListener("click", event => {
+  const bounds = els.ruleDialog.getBoundingClientRect();
+  if (event.target === els.ruleDialog && (event.clientX < bounds.left || event.clientX > bounds.right)) closeEditor();
+});
+els.ruleForm.addEventListener("submit", async event => {
+  event.preventDefault();
+  if (!editingRule || isSaving || !canSave || !els.ruleForm.reportValidity()) return;
+  const { kind, id } = editingRule;
+  const name = els.ruleName.value.trim();
+  const match = els.ruleMatch.value.trim();
+  const value = els.ruleValue.disabled ? "" : els.ruleValue.value.trim();
+  if (!name || (kind === "custom" && (!match || (els.ruleValue.required && !value)))) {
+    els.editorError.textContent = "Enter a name and all required matching fields.";
+    els.editorError.hidden = false;
+    return;
+  }
+  const updates = kind === "default" ? { name, description: els.ruleDescription.value.trim() } : { name, match, scope: els.ruleScope.value, action: els.ruleAction.value, value };
+  const savedId = id || crypto.randomUUID();
+  const saved = await saveChanges(candidate => {
+    if (id) Object.assign(findRule(kind, id, candidate), updates);
+    else candidate.customRules.unshift({ id: savedId, ...updates, enabled: true, locked: false });
+  });
+  if (saved) {
+    if (!id) { currentView = "custom"; els.ruleSearch.value = ""; els.stateFilter.value = "all"; render(); }
+    els.ruleDialog.close();
+    focusRule(kind, savedId, "edit");
+  }
+});
+els.themeToggle.addEventListener("click", () => setTheme(currentTheme === "dark" ? "light" : "dark"));
+byId("logoutButton").addEventListener("click", async () => {
+  try { await fetch("/manager/api/logout", { method: "POST" }); } catch { /* Return to sign-in even when the network is unavailable. */ }
   window.location.assign("/manager/login");
 });
-
-document.querySelector("#exportRules").addEventListener("click", () => {
-  const payload = { schemaVersion: 2, exportedAt: new Date().toISOString(), defaults: defaultSettings, customRules };
+byId("exportRules").addEventListener("click", () => {
   const link = document.createElement("a");
-  link.href = URL.createObjectURL(new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" }));
+  link.href = URL.createObjectURL(new Blob([JSON.stringify({ ...config, exportedAt: new Date().toISOString() }, null, 2)], { type: "application/json" }));
   link.download = "sonarr-proxy-manager-rules.json";
   link.click();
-  URL.revokeObjectURL(link.href);
+  setTimeout(() => URL.revokeObjectURL(link.href), 0);
 });
 
-setTheme(currentTheme);
-updateValueRequirement();
 try {
-  const cached = localStorage.getItem(STORAGE_KEY) || localStorage.getItem(LEGACY_STORAGE_KEY);
-  if (cached) applyConfig(JSON.parse(cached));
-} catch { /* Server configuration remains authoritative. */ }
+  const cached = readStorage(STORAGE_KEY) || readStorage("sonarr-proxy-manager.rules.v2");
+  if (cached) config = normalizeConfig(JSON.parse(cached));
+} catch { /* Fetch authoritative settings when a browser cache is invalid. */ }
+setTheme(currentTheme);
 render();
 hydrateRules();
