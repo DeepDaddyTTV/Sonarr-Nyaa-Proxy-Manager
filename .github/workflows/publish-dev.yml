@@ -24,5 +24,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/deepdaddyTTV/sonarr-nyaa-proxy-manager:dev
-            ghcr.io/deepdaddyTTV/sonarr-nyaa-proxy-manager:sha-${{ github.sha }}
+            ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev
+            ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:sha-${{ github.sha }}
