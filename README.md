@@ -4,7 +4,7 @@ A small Torznab-compatible proxy for Nyaa.si, with a web interface for reviewing
 
 ## What It Does
 
-Sonarr sends release searches to this service. The proxy searches Nyaa.si and reshapes its results to make anime season packs and episodes easier for Sonarr to identify. Its built-in behavior handles season naming variants, separates season-pack and exact-episode results, matches meaningful series-title words, and adds Japanese and English language metadata to releases marked Dual Audio. When Nyaa provides an info hash, the proxy prefers a magnet link and falls back to the torrent download URL when it does not.
+Sonarr sends release searches to this service. The proxy searches Nyaa.si and reshapes its results to make anime season packs and episodes easier for Sonarr to identify. Its built-in behavior handles season naming variants, separates season-pack and exact-episode results, matches meaningful series-title words, and adds Japanese and English language metadata to releases marked Dual Audio. Accepted releases use Nyaa's torrent download URL.
 
 The manager is available at `/manager/` and uses a username/password sign-in. It shows the built-in rules as locked defaults and lets operators save, enable, disable, remove, and export custom rule definitions. Custom rules are stored in `/data/custom-rules.json` on the persistent `/data` volume. **Custom rules are currently saved and exported, but are not yet applied to release searches.**
 

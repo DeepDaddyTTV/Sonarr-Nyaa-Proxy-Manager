@@ -8,7 +8,7 @@ const defaultRules = [
   { id: "season-isolation", type: "season filter", name: "Season scans stay seasonal", description: "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season." },
   { id: "series-anchor", type: "series safety", name: "Anchor the series match", description: "Requires meaningful title words to match, reducing substring results for a different show." },
   { id: "query-expansion", type: "search strategy", name: "Expand release queries", description: "Searches padded, unpadded, ordinal, and year-aware season forms to retain EMBER, Judas, Anime Time, and DB results." },
-  { id: "direct-torrent", type: "delivery", name: "Provide torrent links", description: "Prefers a magnet link when Nyaa provides an info hash and falls back to its torrent download URL otherwise." },
+  { id: "direct-torrent", type: "delivery", name: "Provide torrent links", description: "Uses Nyaa's torrent download URL for accepted releases." },
   { id: "dual-audio", type: "languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
 ];
 
@@ -83,10 +83,9 @@ function render() {
   els.defaultRules.innerHTML = defaultRules.map(ruleCard).join("");
   els.customRules.innerHTML = customRules.map(customRuleCard).join("");
   els.emptyState.hidden = customRules.length > 0;
-  const activeCustom = customRules.filter(rule => rule.enabled).length;
   els.defaultCount.textContent = defaultRules.length;
   els.customCount.textContent = customRules.length;
-  els.activeCount.textContent = defaultRules.length + activeCustom;
+  els.activeCount.textContent = defaultRules.length;
   els.navDefaultCount.textContent = defaultRules.length;
   els.navCustomCount.textContent = customRules.length;
 }
