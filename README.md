@@ -1,39 +1,41 @@
-# Sonarr-Nyaa Proxy Manager
+# Sonarr Proxy Manager
 
-A small Torznab-compatible proxy for Nyaa.si, with a web interface for reviewing built-in behavior and managing custom rule data.
+Sonarr Proxy Manager is a Dockerized Torznab proxy for Nyaa.si with a small, authenticated rule manager. It normalizes release titles, distinguishes exact episodes from season packs, and returns filtered results to Sonarr.
 
 ## What It Does
 
-Sonarr sends release searches to this service. The proxy searches Nyaa.si and reshapes its results to make anime season packs and episodes easier for Sonarr to identify. Its built-in behavior handles season naming variants, separates season-pack and exact-episode results, matches meaningful series-title words, and adds Japanese and English language metadata to releases marked Dual Audio. Accepted releases use Nyaa's torrent download URL.
+Sonarr sends indexer searches to the proxy. The proxy searches Nyaa.si, expands season and episode query variants, anchors results to the requested series, and separates episode searches from season-pack searches. Dual Audio releases are announced as Japanese and English. Accepted results use Nyaa's torrent download URL.
 
-The manager is available at `/manager/` and uses a username/password sign-in. It shows the built-in rules as locked defaults and lets operators save, enable, disable, remove, and export custom rule definitions. Custom rules are stored in `/data/custom-rules.json` on the persistent `/data` volume. **Custom rules are currently saved and exported, but are not yet applied to release searches.**
+The manager at `/manager/` lets operators edit the built-in rule labels, lock rules against further edits, enable or disable built-in behavior, and create custom rules. Custom title rules can prefer, exclude, rewrite, or annotate matching releases for all searches, episode scans, or season scans. Settings are stored in `/data/custom-rules.json` on the persistent volume.
 
 ## Requirements
 
-- Sonarr, with permission to add a Torznab indexer.
+- Sonarr configured with a Torznab indexer.
 - Docker Engine or another OCI-compatible container runtime.
-- Network access from the proxy container to Nyaa.si over HTTPS, and network access from Sonarr to the proxy on container TCP port `8787`.
-- A persistent volume mounted at `/data` if custom rule data should survive container replacement.
-- A torrent download client already configured in Sonarr to download releases. This proxy finds and describes releases; Sonarr and its download client handle downloads.
+- Network access from the proxy container to Nyaa.si over HTTPS.
+- A shared Docker network between Sonarr and the proxy so Sonarr can reach the proxy's TCP port `8787`.
+- A persistent `/data` volume for manager settings.
+- `AUTH_USERNAME` and `AUTH_PASSWORD` for access to the browser manager. Sonarr's Torznab API remains separate from manager authentication.
+- A torrent download client already configured in Sonarr. The proxy finds and describes releases; Sonarr and its download client handle downloads.
 
-No Python installation or Nyaa account is required on the host. The image contains the Python runtime. Sonarr's URL and API key are optional and only used when the proxy needs to look up series metadata from Sonarr identifiers.
+No host Python installation or Nyaa account is required. Optional Sonarr URL and API key settings enable series metadata lookup when requests identify a series by TVDB or IMDb ID.
 
 ## Container Setup
 
-Use the public development image:
+The public development image is:
 
 ```text
-ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev
+ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
 ```
 
-Pull it with `docker pull ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev`.
+Pull it with `docker pull ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev`.
 
 Example Compose service:
 
 ```yaml
 services:
-  nyaa-proxy:
-    image: ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev
+  sonarr-proxy-manager:
+    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
     restart: unless-stopped
     expose:
       - "8787"
@@ -45,15 +47,15 @@ services:
       AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
-      - nyaa-proxy-data:/data
+      - sonarr-proxy-manager-data:/data
 
 volumes:
-  nyaa-proxy-data:
+  sonarr-proxy-manager-data:
 ```
 
-Connect the proxy and Sonarr to the same Docker network. In Sonarr, add a Torznab indexer with URL `http://nyaa-proxy:8787/api`. If `PROXY_API_KEY` is set, enter the same value in the indexer's API key field. The manager UI is at `http://<proxy-address>:8787/manager/`; choose a host port mapping only if you need browser access to it. The example above exposes the container port only to its Docker network and does not publish a host port.
+Connect Sonarr and the proxy to the same Docker network. In Sonarr, add a Torznab indexer with URL `http://sonarr-proxy-manager:8787/api`. If `PROXY_API_KEY` is set, enter the same value in the indexer's API key field. The manager UI is at `http://<proxy-address>:8787/manager/`; publish a host port or configure a private reverse-proxy route only if browser access is needed. The Compose example exposes the port only to its Docker network.
 
-Set both `AUTH_USERNAME` and `AUTH_PASSWORD` to enable the manager. Without them, manager pages and rule APIs remain locked and the login page explains how to configure access; Sonarr's Torznab `/api` continues to work independently. The session cookie is HTTP-only, same-site, and expires after 12 hours. Set `AUTH_COOKIE_SECURE=true` when the manager is accessed over HTTPS. Use your container manager's secret facility or an untracked environment file for credentials, never a public Compose file. `PROXY_API_KEY` remains a separate optional key for Torznab requests.
+Set both `AUTH_USERNAME` and `AUTH_PASSWORD` to enable the manager. Without them, manager pages and rule APIs remain unavailable while the Torznab `/api` continues to work independently. The session cookie is HTTP-only, same-site, and expires after 12 hours. Set `AUTH_COOKIE_SECURE=true` when the manager is accessed over HTTPS. Use your container manager's secret facility or an untracked environment file for credentials; never commit real credentials.
 
 ## Configuration
 
@@ -62,11 +64,11 @@ Settings can be provided as environment variables. Defaults shown here are used 
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `PORT` | `8787` | HTTP port inside the container. |
-| `RULES_PATH` | `/data/custom-rules.json` | File used to persist custom rule definitions. |
+| `RULES_PATH` | `/data/custom-rules.json` | Persistent built-in and custom rule configuration. |
 | `NYAA_BASE_URL` | `https://nyaa.si` | Nyaa-compatible index URL. |
 | `NYAA_CATEGORY` | `1_2` | Nyaa category filter; `1_2` is Anime - English-translated. |
 | `NYAA_FILTER` | `0` | Nyaa filter value. |
-| `SONARR_URL` | empty | Sonarr base URL reachable from the proxy container; used for series metadata lookup. |
+| `SONARR_URL` | empty | Sonarr base URL reachable from the proxy container; used for optional series metadata lookup. |
 | `SONARR_API_KEY` | empty | Sonarr API key for the optional metadata lookup. |
 | `PROXY_API_KEY` | empty | Optional API key required for Torznab `/api` requests. |
 | `AUTH_USERNAME` | unset | Username required to sign in to the manager UI. Must be configured with `AUTH_PASSWORD`. |
@@ -76,24 +78,23 @@ Settings can be provided as environment variables. Defaults shown here are used 
 | `REQUEST_TIMEOUT_SECONDS` | `20` | Outbound request timeout. |
 | `SONARR_CONFIG_PATH` | `/app/sonarr_proxy_config.json` | Optional legacy JSON configuration file path. |
 
-Do not put real API keys in a public Compose file or commit them to source control. Use your container manager's secret or environment-variable facility.
-
 ## Endpoints
 
 - `/api` - Torznab endpoint to add as an indexer in Sonarr.
-- `/manager/` - Authenticated browser UI for built-in defaults and custom rule data.
+- `/manager/` - Authenticated browser UI for built-in defaults and custom rules.
 - `/manager/login` - Manager sign-in page.
 - `/health` - Basic health response.
 
 ## Development
 
-Build locally with Docker:
+Run the tests and build locally:
 
 ```sh
-docker build -t sonarr-nyaa-proxy-manager:dev .
+python -m unittest -q test_nyaa_proxy_runtime_patch test_manager_server
+docker build -t sonarr-proxy-manager:dev .
 ```
 
-The GitHub Actions workflow publishes the `dev` image and a commit-specific image to GitHub Container Registry on pushes to `main`.
+The GitHub Actions workflow tests the proxy and manager, checks the browser scripts, and publishes the `dev` image plus a commit-specific image to GitHub Container Registry when changes reach `main`.
 
 ## License
 

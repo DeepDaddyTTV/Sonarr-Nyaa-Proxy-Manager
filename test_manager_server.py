@@ -19,6 +19,7 @@ class ManagerAuthTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.data_dir = tempfile.TemporaryDirectory()
         manager_server.RULES_PATH = Path(cls.data_dir.name) / "rules.json"
+        manager_server.RULES_CONFIG = manager_server.read_rules_config()
         manager_server.AUTH_USERNAME = "test-user"
         manager_server.AUTH_PASSWORD = "test-password"
         manager_server.AUTH_ENABLED = True
@@ -66,17 +67,56 @@ class ManagerAuthTests(unittest.TestCase):
 
         status, _, page = self.request("GET", "/manager/", cookie=cookie)
         self.assertEqual(status, 200)
-        self.assertIn(b"Sonarr-Nyaa Proxy Manager", page)
+        self.assertIn(b"Sonarr Proxy Manager", page)
 
-        rules = [{"id": "one", "name": "Test rule", "type": "title-match", "match": "Judas", "action": "keep", "enabled": True}]
-        status, _, _ = self.request("PUT", "/manager/api/rules", {"customRules": rules}, cookie=cookie)
+        status, _, body = self.request("GET", "/manager/api/rules", cookie=cookie)
+        defaults = json.loads(body)["defaults"]
+        self.assertEqual(len(defaults), 8)
+        self.assertTrue(all(rule["enabled"] and not rule["locked"] for rule in defaults.values()))
+
+        rules = [{
+            "id": "one", "name": "Prefer Judas", "match": "Judas", "action": "prefer",
+            "scope": "all", "value": "", "enabled": True, "locked": False,
+        }]
+        config = {"defaults": defaults, "customRules": rules}
+        config["defaults"]["dual-audio"]["locked"] = True
+        status, _, _ = self.request("PUT", "/manager/api/rules", config, cookie=cookie)
         self.assertEqual(status, 200)
         status, _, body = self.request("GET", "/manager/api/rules", cookie=cookie)
         self.assertEqual(status, 200)
-        self.assertEqual(json.loads(body)["customRules"], rules)
+        saved = json.loads(body)
+        self.assertEqual(saved["customRules"], rules)
+        self.assertTrue(saved["defaults"]["dual-audio"]["locked"])
+        self.assertEqual(json.loads(manager_server.RULES_PATH.read_text())["schemaVersion"], 2)
+
+        locked_config = json.loads(body)
+        locked_config["defaults"]["dual-audio"]["name"] = "Changed while locked"
+        status, _, _ = self.request("PUT", "/manager/api/rules", locked_config, cookie=cookie)
+        self.assertEqual(status, 400)
+        unlocked_config = json.loads(body)
+        unlocked_config["defaults"]["dual-audio"]["locked"] = False
+        status, _, _ = self.request("PUT", "/manager/api/rules", unlocked_config, cookie=cookie)
+        self.assertEqual(status, 200)
+
+        invalid = {"defaults": defaults, "customRules": [{**rules[0], "scope": "shell"}]}
+        status, _, _ = self.request("PUT", "/manager/api/rules", invalid, cookie=cookie)
+        self.assertEqual(status, 400)
+
+        status, headers, icon_data = self.request("GET", "/manager/assets/icons/033-lock.png", cookie=cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "image/png")
+        self.assertTrue(icon_data.startswith(b"\x89PNG"))
 
         status, _, _ = self.request("GET", "/api?t=caps")
         self.assertEqual(status, 200)
+
+    def test_legacy_custom_rules_migrate_to_version_two(self) -> None:
+        migrated = manager_server.normalize_rules_config([
+            {"id": "legacy", "name": "Keep Judas", "match": "Judas", "action": "keep", "enabled": True}
+        ])
+        self.assertEqual(migrated["schemaVersion"], 2)
+        self.assertEqual(migrated["customRules"][0]["action"], "prefer")
+        self.assertTrue(all(not rule["locked"] for rule in migrated["defaults"].values()))
 
 
 if __name__ == "__main__":

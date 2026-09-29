@@ -3,21 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#0b1210" />
-    <title>Sonarr-Nyaa Proxy Manager</title>
+    <meta name="theme-color" content="#090d18" />
+    <title>Sonarr Proxy Manager</title>
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
     <main class="app-shell">
       <header class="topbar">
-        <a class="brand" href="#top" aria-label="Sonarr-Nyaa Proxy Manager home">
-          <span class="brand-mark">N</span>
-          <span><strong>Sonarr-Nyaa</strong><small>Proxy Manager</small></span>
+        <a class="brand" href="#top" aria-label="Sonarr Proxy Manager home">
+          <span class="brand-mark ui-icon" style="--icon-url: url('/manager/assets/icons/065-cogwheel.png')" aria-hidden="true"></span>
+          <span><strong>Sonarr Proxy</strong><small>Manager</small></span>
         </a>
         <div class="topbar-actions">
           <span class="connection"><i></i> Private workspace</span>
           <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
-            <span aria-hidden="true">◐</span><span id="themeLabel">Light</span>
+            <span class="ui-icon theme-icon" id="themeIcon" aria-hidden="true"></span><span id="themeLabel">Light</span>
           </button>
           <button class="logout-button" id="logoutButton" type="button">Log out</button>
         </div>
@@ -25,34 +25,35 @@
 
       <section class="hero" id="top">
         <div>
-          <p class="eyebrow">Rule control plane</p>
-          <h1>Keep the right releases.<br /><em>Reject the noise.</em></h1>
-          <p class="hero-copy">A clean rule workspace for Sonarr searches routed through your Nyaa proxy. Defaults reflect the behavior currently protecting season and episode scans.</p>
+          <p class="eyebrow"><span class="ui-icon eyebrow-icon" style="--icon-url: url('/manager/assets/icons/076-construction.png')" aria-hidden="true"></span> Release control</p>
+          <h1>Keep the signal.<br /><em>Lose the noise.</em></h1>
+          <p class="hero-copy">Shape how Sonarr searches are classified, filtered, and delivered. Built-in rules drive the live proxy; your custom rules can refine the same release results.</p>
         </div>
         <div class="hero-stats" aria-label="Rule counts">
-          <div><strong id="defaultCount">8</strong><span>Locked defaults</span></div>
+          <div><strong id="defaultCount">8</strong><span>Built-in rules</span></div>
           <div><strong id="customCount">0</strong><span>Custom rules</span></div>
-          <div><strong id="activeCount">8</strong><span>Built-in active</span></div>
+          <div><strong id="activeCount">8</strong><span>Rules active</span></div>
         </div>
       </section>
 
-      <section class="notice" aria-label="How this workspace works">
-        <span class="notice-icon">!</span>
-          <p><strong>Defaults are protected.</strong> They document the active proxy behavior. Custom rules are saved here, but do not change release searches yet.</p>
+      <section class="notice" aria-label="Rule editing help">
+        <span class="notice-icon ui-icon" style="--icon-url: url('/manager/assets/icons/002-filter.png')" aria-hidden="true"></span>
+        <p><strong>Lock icons control editing.</strong> Rules start unlocked. Lock a rule to protect its settings; switching a rule off changes proxy behavior without deleting it.</p>
+        <span class="save-status" id="saveStatus" role="status" aria-live="polite">Synced</span>
       </section>
 
       <nav class="section-nav" aria-label="Rule sections">
-        <a href="#defaults">Locked defaults <span id="navDefaultCount">8</span></a>
+        <a href="#defaults">Built-in rules <span id="navDefaultCount">8</span></a>
         <a href="#custom">Custom rules <span id="navCustomCount">0</span></a>
       </nav>
 
       <section class="rule-section" id="defaults">
         <div class="section-heading">
           <div>
-            <p class="eyebrow">System rules</p>
-            <h2>Locked defaults</h2>
+            <p class="eyebrow">Proxy behavior</p>
+            <h2>Built-in rules</h2>
           </div>
-          <p>These mirror the current proxy implementation and cannot be changed here.</p>
+          <p>These settings are applied to Sonarr searches. Click a rule's text to edit its name or description; the lock icon protects those edits.</p>
         </div>
         <div class="rule-grid" id="defaultRules"></div>
       </section>
@@ -63,50 +64,48 @@
             <p class="eyebrow">Your layer</p>
             <h2>Custom rules</h2>
           </div>
-          <button class="button button-primary" id="openRuleForm" type="button"><span>+</span> Add rule</button>
+          <button class="button button-primary" id="openRuleForm" type="button"><span class="ui-icon button-icon" style="--icon-url: url('/manager/assets/icons/069-file.png')" aria-hidden="true"></span> Add rule</button>
         </div>
 
         <form class="rule-form" id="ruleForm" hidden>
           <div class="form-heading">
-            <div><p class="eyebrow">New custom rule</p><h3>Define what the proxy should do</h3></div>
+            <div><p class="eyebrow">New custom rule</p><h3>Refine matching releases</h3></div>
             <button class="icon-button" id="closeRuleForm" type="button" aria-label="Close add rule form">×</button>
           </div>
           <div class="form-grid">
-            <label>Rule name<input id="ruleName" name="name" maxlength="48" placeholder="Prefer a release group" required /></label>
-            <label>Rule type<select id="ruleType" name="type">
-              <option value="title-match">Title match</option>
-              <option value="title-regex">Title regex</option>
-              <option value="search-variant">Search variant</option>
-              <option value="language-tag">Language annotation</option>
-              <option value="result-filter">Result filter</option>
+            <label>Rule name<input id="ruleName" name="name" maxlength="64" placeholder="Prefer Judas releases" required /></label>
+            <label>Search scope<select id="ruleScope" name="scope">
+              <option value="all">Episodes and seasons</option>
+              <option value="episodes">Single episodes only</option>
+              <option value="seasons">Season packs only</option>
             </select></label>
-            <label>When this matches<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas|EMBER" required /></label>
+            <label>Title contains<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas" required /></label>
             <label>Then do this<select id="ruleAction" name="action">
-              <option value="keep">Keep result</option>
-              <option value="exclude">Exclude result</option>
-              <option value="prefer">Prefer result</option>
-              <option value="rewrite">Rewrite title</option>
-              <option value="annotate">Add annotation</option>
+              <option value="prefer">Prefer matching results</option>
+              <option value="exclude">Exclude matching results</option>
+              <option value="rewrite">Replace matching text</option>
+              <option value="annotate">Add a title label</option>
             </select></label>
+            <label class="value-field" id="valueField">Replacement or label<input id="ruleValue" name="value" maxlength="120" placeholder="Required for replace or label" /></label>
           </div>
-          <div class="form-footer"><p>Custom rules are saved to the manager volume and can be exported as JSON.</p><button class="button button-primary" type="submit">Save custom rule</button></div>
+          <div class="form-footer"><p>Rules run on the matched release title and are saved to the persistent manager volume.</p><button class="button button-primary" type="submit">Save rule</button></div>
         </form>
 
         <div class="custom-rules" id="customRules"></div>
         <div class="empty-state" id="emptyState">
-          <span>+</span>
+          <span class="ui-icon empty-icon" style="--icon-url: url('/manager/assets/icons/069-file.png')" aria-hidden="true"></span>
           <h3>No custom rules yet</h3>
-          <p>Start small: add a group preference, a title rewrite, or an exclusion for a noisy release pattern.</p>
+          <p>Prefer a release group, exclude a noisy pattern, or annotate matching titles without changing the built-in protections.</p>
           <button class="button button-secondary" id="emptyAddRule" type="button">Add your first rule</button>
         </div>
       </section>
 
       <section class="export-bar">
-        <div><p class="eyebrow">Portable configuration</p><h2>Take your rules with you.</h2><p>Export the default rule map and your custom layer as JSON.</p></div>
+        <div><p class="eyebrow">Portable configuration</p><h2>Take your rules with you.</h2><p>Export the built-in settings and custom rules as JSON.</p></div>
         <button class="button button-secondary" id="exportRules" type="button">Export rules <span>↓</span></button>
       </section>
     </main>
-    <footer>Sonarr-Nyaa Proxy Manager <span>·</span> Custom rules are saved to the manager volume.</footer>
+    <footer>Sonarr Proxy Manager <span>·</span> Rules persist on the manager volume.</footer>
     <script src="app.js"></script>
   </body>
 </html>

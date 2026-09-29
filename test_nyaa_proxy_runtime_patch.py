@@ -1,5 +1,7 @@
 import unittest
 import xml.etree.ElementTree as ET
+from dataclasses import dataclass
+from types import SimpleNamespace
 
 import nyaa_proxy_runtime_patch as proxy
 
@@ -127,6 +129,107 @@ class ProxyFixtureTests(unittest.TestCase):
             {("category", "5070"), ("language", "Japanese"), ("language", "English")},
         )
         self.assertEqual(items[1].findall("{http://torznab.com/schemas/2015/feed}attr"), [])
+
+    def test_episode_ranges_are_not_misclassified_as_single_episodes(self):
+        title = "[Judas] My Show S01E01-E12 [1080p]"
+        parsed = proxy.parse_release_title(title, 1)
+        self.assertEqual(parsed.kind, "pack")
+        self.assertEqual(parsed.episode_start, 1)
+        self.assertEqual(parsed.episode_end, 12)
+        self.assertEqual(proxy.rewrite_title(title, parsed), "[Judas] My Show S01 [1080p]")
+
+
+class RuntimeCollectionTests(unittest.TestCase):
+    @staticmethod
+    def make_module(releases, rules):
+        @dataclass(frozen=True)
+        class FakeRelease:
+            title: str
+            normalized_title: str
+            guid: str
+            seeders: int
+            download_url: str = "https://nyaa.example/download.torrent"
+
+            @property
+            def magnet_url(self):
+                return "magnet:?xt=urn:btih:fake"
+
+            @property
+            def preferred_download_url(self):
+                return self.magnet_url or self.download_url
+
+        class FakeHandler:
+            def do_GET(self):
+                pass
+
+        def to_feed(items, _url):
+            root = ET.Element("rss")
+            channel = ET.SubElement(root, "channel")
+            for release in items:
+                item = ET.SubElement(channel, "item")
+                ET.SubElement(item, "title").text = release.normalized_title
+            return ET.tostring(root)
+
+        return SimpleNamespace(
+            REQUEST_TIMEOUT_SECONDS=20,
+            Release=FakeRelease,
+            Handler=FakeHandler,
+            feed_xml=to_feed,
+            query_bases=lambda _params, _season: ["My Show"],
+            fetch_nyaa=lambda _query: releases,
+            first=lambda _params, _key, default="": default,
+            parse_season=lambda value: int(value) if value and str(value).isdigit() else None,
+            fetch_sonarr_series=lambda: [],
+            caps_xml=lambda: b"",
+        )
+
+    @staticmethod
+    def release(title, seeders):
+        return RuntimeCollectionTests.make_module([], SimpleNamespace).Release(
+            title=title,
+            normalized_title=title,
+            guid=title,
+            seeders=seeders,
+        )
+
+    def test_episode_and_season_scans_stay_separate(self):
+        releases = [
+            self.release("[Judas] My Show S01", 100),
+            self.release("[Judas] My Show S01E02", 80),
+            self.release("[Judas] My Show S01E01-E12 [Batch]", 70),
+            self.release("[Judas] My Show S02E02", 60),
+        ]
+        rules = {"defaults": {"query-expansion": {"enabled": False}}, "customRules": []}
+        module = self.make_module(releases, rules)
+        proxy.install(module, lambda: rules)
+
+        episode_results = module._proxy_collect(["My Show"], "1", "2", None)
+        self.assertEqual([item.title for item in episode_results], ["[Judas] My Show S01E02"])
+
+        season_results = module._proxy_collect(["My Show"], "1", None, None)
+        self.assertEqual(
+            {item.title for item in season_results},
+            {"[Judas] My Show S01", "[Judas] My Show S01E01-E12 [Batch]"},
+        )
+        self.assertTrue(all("S01E" not in item.normalized_title for item in season_results))
+
+    def test_custom_exclude_and_annotation_rules_apply_to_feed_titles(self):
+        releases = [
+            self.release("[Judas] My Show S01E02", 30),
+            self.release("[Noisy] My Show S01E02", 90),
+        ]
+        rules = {
+            "defaults": {"query-expansion": {"enabled": False}},
+            "customRules": [
+                {"enabled": True, "scope": "all", "match": "[Noisy]", "action": "exclude"},
+                {"enabled": True, "scope": "episodes", "match": "[Judas]", "action": "annotate", "value": "Preferred"},
+            ],
+        }
+        module = self.make_module(releases, rules)
+        proxy.install(module, lambda: rules)
+        found = module._proxy_collect(["My Show"], "1", "2", None)
+        self.assertEqual(len(found), 1)
+        self.assertIn("[Preferred]", found[0].normalized_title)
 
 
 if __name__ == "__main__":

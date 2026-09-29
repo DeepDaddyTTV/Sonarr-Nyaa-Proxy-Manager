@@ -1,15 +1,20 @@
-const THEME_KEY = "sonarr-nyaa-proxy-manager.theme";
+const THEME_KEY = "sonarr-proxy-manager.theme";
+const LEGACY_THEME_KEY = "sonarr-nyaa-proxy-manager.theme";
 const form = document.querySelector("#loginForm");
 const error = document.querySelector("#loginError");
 const button = document.querySelector("#loginButton");
 const themeToggle = document.querySelector("#themeToggle");
 const themeLabel = document.querySelector("#themeLabel");
-let currentTheme = localStorage.getItem(THEME_KEY) || "dark";
+let currentTheme = localStorage.getItem(THEME_KEY) || localStorage.getItem(LEGACY_THEME_KEY) || "dark";
 
 function setTheme(theme) {
   currentTheme = theme;
   document.documentElement.dataset.theme = theme;
   themeLabel.textContent = theme === "dark" ? "Light" : "Dark";
+  document.querySelector("#themeIcon").style.setProperty(
+    "--icon-url",
+    `url('/manager/assets/icons/${theme === "dark" ? "sun.png" : "050-dark.png"}')`,
+  );
   themeToggle.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
   localStorage.setItem(THEME_KEY, theme);
 }

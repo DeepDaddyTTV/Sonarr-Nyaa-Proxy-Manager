@@ -6,7 +6,7 @@ from dataclasses import dataclass
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
-from typing import Dict, Iterable, List, Optional, Tuple
+from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 
 YEAR_TOKEN = re.compile(r"(?<!\d)[(\[]\s*(?:19|20)\d{2}\s*[)\]]")
@@ -20,6 +20,7 @@ EPISODE_AFTER_SEASON = re.compile(
     r"(?ix)\s*[-:]\s*(?P<start>\d{1,3})"
     r"(?:\s*(?P<separator>[-~])\s*(?P<end>\d{1,3}))?"
 )
+RANGE_END_AFTER_EPISODE = re.compile(r"(?ix)\s*[-~]\s*E?(?P<end>\d{1,3})\b")
 FALLBACK_EPISODE = re.compile(
     r"(?ix)(?:^|\s)-\s*(?P<start>\d{1,3})"
     r"(?:\s*(?P<separator>[-~])\s*(?P<end>\d{1,3}))?(?=$|\s|[\[(])"
@@ -55,9 +56,13 @@ def _season_from_match(match: re.Match[str]) -> int:
     return int(match.group("w_num"))
 
 
-def parse_release_title(title: str, requested_season: Optional[int] = None) -> ParsedRelease:
+def parse_release_title(
+    title: str,
+    requested_season: Optional[int] = None,
+    strip_year: bool = True,
+) -> ParsedRelease:
     """Classify a title without treating years, resolution, or bit depth as episodes."""
-    cleaned = strip_year_tokens(title)
+    cleaned = strip_year_tokens(title) if strip_year else title
     marker = SEASON_TOKEN.search(cleaned)
     season: Optional[int] = None
     episode_start: Optional[int] = None
@@ -75,6 +80,10 @@ def parse_release_title(title: str, requested_season: Optional[int] = None) -> P
             episode_start = int(marker.group("s_ep"))
             episode_start_pos = marker.start("s_ep")
             episode_end_pos = marker.end("s_ep")
+            after_episode = RANGE_END_AFTER_EPISODE.match(cleaned, marker.end())
+            if after_episode:
+                episode_end = int(after_episode.group("end"))
+                episode_end_pos = after_episode.end("end")
         else:
             after = EPISODE_AFTER_SEASON.match(cleaned, marker.end())
             if after:
@@ -142,10 +151,17 @@ def add_dual_audio_language_tokens(title: str) -> str:
     return f"{title.rstrip()} [{' '.join(languages)}]"
 
 
-def rewrite_title(title: str, parsed: ParsedRelease) -> str:
+def rewrite_title(
+    title: str,
+    parsed: ParsedRelease,
+    normalize: bool = True,
+    dual_audio: bool = True,
+) -> str:
     """Rewrite a classified release to a Sonarr-safe Sxx or SxxExx title."""
+    if not normalize:
+        return add_dual_audio_language_tokens(title) if dual_audio else title
     if parsed.kind == "unknown" or parsed.season is None:
-        return add_dual_audio_language_tokens(title)
+        return add_dual_audio_language_tokens(title) if dual_audio else title
 
     text = parsed.cleaned_title
     if parsed.kind == "pack":
@@ -166,17 +182,18 @@ def rewrite_title(title: str, parsed: ParsedRelease) -> str:
         prefix = re.sub(r"\s*-\s*$", " ", text[:parsed.episode_start_pos])
         text = prefix + replacement + text[parsed.episode_end_pos or parsed.episode_start_pos:]
 
-    return add_dual_audio_language_tokens(re.sub(r"\s{2,}", " ", text).strip())
+    normalized = re.sub(r"\s{2,}", " ", text).strip()
+    return add_dual_audio_language_tokens(normalized) if dual_audio else normalized
 
 
-def add_torznab_language_attributes(feed_xml: bytes) -> bytes:
+def add_torznab_language_attributes(feed_xml: bytes, enabled: bool = True) -> bytes:
     """Annotate dual-audio items for Torznab clients that consume language attrs."""
     ET.register_namespace("atom", ATOM_NS)
     ET.register_namespace("torznab", TORZNAB_NS)
     root = ET.fromstring(feed_xml)
     for item in root.findall("./channel/item"):
         title = item.findtext("title") or ""
-        if not DUAL_AUDIO_MARKER.search(title):
+        if not enabled or not DUAL_AUDIO_MARKER.search(title):
             continue
         existing = {
             (attribute.get("name"), attribute.get("value"))
@@ -232,7 +249,7 @@ def search_variants(
     return values[:12]
 
 
-def install(module: object) -> None:
+def install(module: object, rules_provider: Optional[Callable[[], dict]] = None) -> None:
     """Install request-aware behavior over the original proxy module."""
     from dataclasses import replace
 
@@ -243,9 +260,21 @@ def install(module: object) -> None:
     original_first = module.first
     original_parse_season = module.parse_season
     original_fetch_sonarr_series = getattr(module, "fetch_sonarr_series", lambda: [])
-    title_overrides: Dict[str, str] = {}
+    original_magnet_url = module.Release.magnet_url
+    original_preferred_download_url = module.Release.preferred_download_url
+
+    def current_rules() -> dict:
+        try:
+            return rules_provider() if rules_provider else {}
+        except Exception:
+            return {}
+
+    def default_enabled(rule_id: str) -> bool:
+        return current_rules().get("defaults", {}).get(rule_id, {}).get("enabled", True)
 
     def matches_series(release: object, query: str) -> bool:
+        if not default_enabled("series-anchor"):
+            return True
         words = re.findall(r"[a-z0-9]+", query.lower())
         stop_words = {"a", "an", "and", "at", "for", "from", "in", "of", "on", "the", "to", "with"}
         anchors = [word for word in words if word not in stop_words and len(word) > 1]
@@ -261,39 +290,106 @@ def install(module: object) -> None:
     ) -> List[object]:
         requested_season = original_parse_season(season)
         requested_episode = int(episode) if episode and episode.isdigit() else None
+        config = current_rules()
+        custom_rules = config.get("customRules", [])
+        is_episode_search = requested_episode is not None
+        is_season_search = requested_season is not None and requested_episode is None
         results: Dict[str, object] = {}
+        preferred_releases: set[str] = set()
         for query in queries:
-            for variant in search_variants(query, requested_season, requested_episode, series_year):
+            variants = (
+                search_variants(query, requested_season, requested_episode, series_year)
+                if default_enabled("query-expansion")
+                else [query]
+            )
+            for variant in variants:
                 try:
                     for release in original_fetch_nyaa(variant):
                         if not matches_series(release, query):
                             continue
-                        parsed = parse_release_title(release.title, requested_season)
-                        if requested_episode is not None:
+                        parsed = parse_release_title(
+                            release.title,
+                            requested_season,
+                            strip_year=default_enabled("year-hygiene"),
+                        )
+                        if is_episode_search and default_enabled("episode-isolation"):
                             if parsed.kind != "episode" or parsed.episode_start != requested_episode or parsed.season != requested_season:
                                 continue
-                        elif requested_season is not None:
+                        elif is_season_search and default_enabled("season-isolation"):
                             if parsed.kind in ("episode", "range"):
                                 continue
                             if parsed.season not in (None, requested_season):
                                 continue
-                        elif parsed.kind not in ("pack", "unknown"):
+                        elif not is_episode_search and not is_season_search and parsed.kind not in ("pack", "unknown"):
                             continue
-                        results.setdefault(release.guid, release)
-                        title_overrides[release.guid] = rewrite_title(release.title, parsed)
+
+                        normalized_title = rewrite_title(
+                            release.title,
+                            parsed,
+                            normalize=default_enabled("season-classification"),
+                            dual_audio=default_enabled("dual-audio"),
+                        )
+                        excluded = False
+                        matched_preferences = False
+                        for rule in custom_rules:
+                            if not rule.get("enabled", True):
+                                continue
+                            scope = rule.get("scope", "all")
+                            if scope == "episodes" and not is_episode_search:
+                                continue
+                            if scope == "seasons" and not is_season_search:
+                                continue
+                            match = str(rule.get("match", ""))
+                            if not match or match.casefold() not in release.title.casefold():
+                                continue
+                            action = rule.get("action")
+                            if action == "exclude":
+                                excluded = True
+                                break
+                            if action == "prefer":
+                                matched_preferences = True
+                            elif action == "rewrite":
+                                normalized_title = re.sub(
+                                    re.escape(match),
+                                    lambda _match: str(rule.get("value", "")),
+                                    normalized_title,
+                                    count=1,
+                                    flags=re.IGNORECASE,
+                                )
+                            elif action == "annotate":
+                                annotation = str(rule.get("value", "")).strip()
+                                if annotation:
+                                    normalized_title = f"{normalized_title.rstrip()} [{annotation}]"
+                        if excluded:
+                            continue
+                        results.setdefault(
+                            release.guid,
+                            replace(release, normalized_title=normalized_title),
+                        )
+                        if matched_preferences:
+                            preferred_releases.add(release.guid)
                 except Exception as error:
                     print(f"fetch failed for query={variant!r}: {error}")
-        return sorted(results.values(), key=lambda release: release.seeders, reverse=True)
+        return sorted(
+            results.values(),
+            key=lambda release: (release.guid in preferred_releases, release.seeders),
+            reverse=True,
+        )
 
     def patched_feed_xml(releases: Iterable[object], self_url: str) -> bytes:
-        transformed = [
-            replace(release, normalized_title=title_overrides.get(release.guid, release.normalized_title))
-            for release in releases
-        ]
-        return add_torznab_language_attributes(original_feed_xml(transformed, self_url))
+        return add_torznab_language_attributes(
+            original_feed_xml(releases, self_url),
+            enabled=default_enabled("dual-audio"),
+        )
 
-    module.Release.magnet_url = property(lambda self: "")
-    module.Release.preferred_download_url = property(lambda self: self.download_url or "")
+    module.Release.magnet_url = property(
+        lambda self: "" if default_enabled("direct-torrent") else original_magnet_url.fget(self)
+    )
+    module.Release.preferred_download_url = property(
+        lambda self: (self.download_url or "")
+        if default_enabled("direct-torrent")
+        else original_preferred_download_url.fget(self)
+    )
     module.feed_xml = patched_feed_xml
 
     def do_get(self: object) -> None:
@@ -343,6 +439,7 @@ def install(module: object) -> None:
     module._proxy_add_dual_audio_language_tokens = add_dual_audio_language_tokens
     module._proxy_add_torznab_language_attributes = add_torznab_language_attributes
     module._proxy_search_variants = search_variants
+    module._proxy_collect = collect
     module.Handler.do_GET = do_get
 
 

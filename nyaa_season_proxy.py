@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Nyaa Season Proxy
+Sonarr Proxy Manager
 
 Small Torznab-compatible proxy that rewrites Nyaa anime batch titles before
 Sonarr parses them. The main target is releases like:
@@ -61,7 +61,7 @@ CACHE_TTL_SECONDS = int(os.environ.get("CACHE_TTL_SECONDS", "300"))
 REQUEST_TIMEOUT_SECONDS = int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "20"))
 USER_AGENT = os.environ.get(
     "USER_AGENT",
-    "nyaa-season-proxy/1.0 (+https://github.com/Sonarr/Sonarr)",
+    "sonarr-proxy-manager/1.0",
 )
 TRACKERS = [
     "udp://open.stealth.si:80/announce",
@@ -445,7 +445,7 @@ def collect_releases(queries: Iterable[str], season: Optional[str]) -> List[Rele
 
 def caps_xml() -> bytes:
     caps = ET.Element("caps")
-    ET.SubElement(caps, "server", title="Nyaa Season Proxy", version="1.0")
+    ET.SubElement(caps, "server", title="Sonarr Proxy Manager", version="2.0")
     ET.SubElement(caps, "limits", max="100", default="100")
 
     searching = ET.SubElement(caps, "searching")
@@ -472,7 +472,7 @@ def feed_xml(releases: Iterable[Release], self_url: str) -> bytes:
         },
     )
     channel = ET.SubElement(rss, "channel")
-    ET.SubElement(channel, "title").text = "Nyaa Season Proxy"
+    ET.SubElement(channel, "title").text = "Sonarr Proxy Manager"
     ET.SubElement(channel, "description").text = "Nyaa results with Sonarr-friendly season-pack titles"
     ET.SubElement(channel, "link").text = NYAA_BASE_URL
     ET.SubElement(channel, "{http://www.w3.org/2005/Atom}link", href=self_url, rel="self", type="application/rss+xml")
@@ -594,7 +594,7 @@ def run() -> None:
     host = os.environ.get("HOST", "0.0.0.0")
     port = int(os.environ.get("PORT", "8787"))
     server = ThreadingHTTPServer((host, port), Handler)
-    print(f"Nyaa Season Proxy listening on http://{host}:{port}")
+    print(f"Sonarr Proxy Manager listening on http://{host}:{port}")
     server.serve_forever()
 
 

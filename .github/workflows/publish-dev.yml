@@ -19,6 +19,10 @@ jobs:
           python-version: '3.13'
       - name: Test proxy and manager
         run: python -m unittest -q test_nyaa_proxy_runtime_patch test_manager_server
+      - name: Check manager scripts
+        run: |
+          node --check app.js
+          node --check auth.js
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -29,5 +33,5 @@ jobs:
           context: .
           push: true
           tags: |
-            ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:dev
-            ghcr.io/deepdaddyttv/sonarr-nyaa-proxy-manager:sha-${{ github.sha }}
+            ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
+            ghcr.io/deepdaddyttv/sonarr-proxy-manager:sha-${{ github.sha }}
