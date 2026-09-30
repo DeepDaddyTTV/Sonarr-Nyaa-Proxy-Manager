@@ -21,15 +21,15 @@ Docker Compose starts a container from a configuration file. The example `compos
 1. Create a folder for the app on the computer running Docker.
 2. Download [compose.yaml]({{ '/assets/examples/compose.yaml' | relative_url }}) and [env.example]({{ '/assets/examples/env.example' | relative_url }}) into that folder.
 3. Rename `env.example` to `.env`. Open it in a text editor and set `AUTH_USERNAME` and `AUTH_PASSWORD` to the login you want to use for the manager. Leave the Sonarr and Prowlarr connection fields blank for now; you can fill them in through the app.
-4. If Sonarr and Prowlarr also run in Docker, create the shared network below and attach those apps to it as described next. If they are installed directly on a computer, follow the corresponding [networking example](#networking) instead.
+4. Create the Docker network below; the supplied Compose file needs it even when Sonarr and Prowlarr are installed outside Docker. If those apps also run in Docker, attach them to this network as described next. Otherwise, use the corresponding [networking example](#networking) for their addresses.
 
-Open a terminal in the folder you created. For the Docker-network setup, run this once:
+Open a terminal in the folder you created and run this once. If a network named `sonarr-net` already exists, you can reuse it and skip this command:
 
 ```sh
 docker network create sonarr-net
 ```
 
-Add `sonarr-net` to Sonarr and Prowlarr's existing Compose files so all three apps can communicate. Keep their existing images, ports, volumes, and networks. This is an example of the **network additions**, not a replacement for their complete files:
+**Only if Sonarr and Prowlarr also run in Docker:** add `sonarr-net` to their existing Compose files so all three apps can communicate. Keep their existing images, ports, volumes, and networks. This is an example of the **network additions**, not a replacement for their complete files:
 
 ```yaml
 services:
