@@ -78,6 +78,9 @@ h1 { margin: 0; font-size: clamp(2rem, 5vw, 3.4rem); }
 .guide-content pre { max-width: 100%; margin: 1.1rem 0 1.6rem; padding: 1rem 1.15rem; overflow: auto; border: 1px solid var(--line); border-radius: 6px; background: #121414; color: #e8e5df; box-shadow: 0 8px 28px var(--shadow); }
 :root[data-theme="light"] .guide-content pre { background: #282a28; }
 .guide-content pre code { color: inherit; font: 12px/1.65 var(--mono); white-space: pre; }
+.guide-content figure { margin: 1.2rem 0 1.8rem; padding: .55rem; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); box-shadow: 0 8px 28px var(--shadow); }
+.guide-content figure img { display: block; width: 100%; max-width: 100%; height: auto; border: 1px solid var(--line); border-radius: 5px; }
+.guide-content figcaption { padding: .65rem .3rem .1rem; color: var(--quiet); font-size: 11px; line-height: 1.55; }
 .guide-content img { max-width: 100%; height: auto; }
 .guide-content .language-text, .guide-content .language-sh { color: inherit; }
 .guide-footer { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-top: 1.2rem; border-top: 1px solid var(--line); color: var(--quiet); font: 9px var(--mono); letter-spacing: .12em; }

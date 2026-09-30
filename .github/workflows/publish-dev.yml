@@ -35,5 +35,5 @@ jobs:
           push: true
           tags: |
             ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
-            ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable
-            ghcr.io/deepdaddyttv/sonarr-proxy-manager:sha-${{ github.sha }}
+            ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest
+            ghcr.io/deepdaddyttv/sonarr-proxy-manager:build-${{ github.run_number }}

@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 940" role="img" aria-labelledby="title desc">
+  <title id="title">Sonarr custom Torznab setup reference</title>
+  <desc id="desc">Illustrative Sonarr indexer configuration with the proxy base URL and API path in separate fields, search options, anime categories, and test and save controls.</desc>
+  <defs>
+    <linearGradient id="accent" x1="0" x2="1">
+      <stop offset="0" stop-color="#52d6c7"/>
+      <stop offset="1" stop-color="#a6e36e"/>
+    </linearGradient>
+    <style>
+      .sans { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    </style>
+  </defs>
+  <rect width="1200" height="940" rx="24" fill="#111a1b"/>
+  <rect x="1" y="1" width="1198" height="938" rx="23" fill="none" stroke="#354547" stroke-width="2"/>
+  <rect x="0" y="0" width="1200" height="12" rx="6" fill="url(#accent)"/>
+  <text x="64" y="74" class="mono" font-size="18" font-weight="700" letter-spacing="2.2" fill="#9de7d4">TORZNAB (CUSTOM) · CONFIGURATION REFERENCE</text>
+  <text x="64" y="130" class="sans" font-size="38" font-weight="700" fill="#f0f4ed">Sonarr Proxy Manager</text>
+  <text x="64" y="166" class="sans" font-size="18" fill="#9baead">Enter the base URL and API path separately.</text>
+
+  <text x="64" y="220" class="sans" font-size="16" font-weight="700" fill="#cfdbd7">Name</text>
+  <rect x="64" y="236" width="1072" height="62" rx="10" fill="#182324" stroke="#455758" stroke-width="2"/>
+  <text x="84" y="276" class="sans" font-size="19" fill="#f0f4ed">Sonarr Proxy Manager</text>
+
+  <text x="64" y="346" class="sans" font-size="16" font-weight="700" fill="#cfdbd7">URL · base address only</text>
+  <rect x="64" y="362" width="1072" height="62" rx="10" fill="#182324" stroke="#455758" stroke-width="2"/>
+  <text x="84" y="402" class="mono" font-size="19" fill="#f0f4ed">http://sonarr-proxy-manager:8787</text>
+
+  <text x="64" y="472" class="sans" font-size="16" font-weight="700" fill="#cfdbd7">API Path</text>
+  <rect x="64" y="488" width="1072" height="62" rx="10" fill="#182324" stroke="#455758" stroke-width="2"/>
+  <text x="84" y="528" class="mono" font-size="19" fill="#f0f4ed">/api</text>
+  <text x="64" y="580" class="sans" font-size="15" fill="#9baead">Do not append /api to the URL above when this field is set.</text>
+
+  <text x="64" y="638" class="sans" font-size="16" font-weight="700" fill="#cfdbd7">API Key</text>
+  <rect x="64" y="654" width="1072" height="62" rx="10" fill="#182324" stroke="#455758" stroke-width="2"/>
+  <text x="84" y="694" class="sans" font-size="18" fill="#a9b8b4">Blank unless PROXY_API_KEY is configured</text>
+
+  <rect x="64" y="748" width="1072" height="94" rx="12" fill="#172223" stroke="#354547" stroke-width="2"/>
+  <text x="88" y="782" class="sans" font-size="16" font-weight="700" fill="#cfdbd7">SEARCH OPTIONS</text>
+  <rect x="88" y="800" width="20" height="20" rx="4" fill="url(#accent)"/>
+  <path d="m93 810 4 4 7-9" fill="none" stroke="#122020" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="120" y="817" class="sans" font-size="16" fill="#e6eeea">Interactive Search</text>
+  <text x="348" y="817" class="sans" font-size="16" fill="#a8b6b1">Automatic Search optional · RSS off for this workflow</text>
+
+  <rect x="64" y="866" width="550" height="42" rx="9" fill="#172223" stroke="#455758" stroke-width="2"/>
+  <text x="84" y="893" class="sans" font-size="15" font-weight="700" fill="#cfdbd7">Categories: TV as needed · Anime (5070) for anime</text>
+  <rect x="924" y="866" width="94" height="42" rx="9" fill="#172223" stroke="#455758" stroke-width="2"/>
+  <text x="951" y="893" class="sans" font-size="15" font-weight="700" fill="#cfdbd7">Test</text>
+  <rect x="1030" y="866" width="106" height="42" rx="9" fill="url(#accent)"/>
+  <text x="1052" y="893" class="sans" font-size="15" font-weight="700" fill="#11201e">Save</text>
+</svg>

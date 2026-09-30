@@ -24,7 +24,7 @@ No host Python installation or Nyaa account is required. Optional Sonarr URL and
 
 ## Quick Start
 
-The project publishes a rolling `stable` image as well as `dev` and commit-specific images. Use `stable` for normal installs; `dev` is available for testing. The personal development stack for this project may use `dev` independently.
+Each successful main-branch build publishes three image tags: `dev` and `latest` both point to the newest build, while `build-<number>` pins one build. Use `latest` for normal installs, keep a personal testing stack on `dev`, or replace `<number>` with a GitHub Actions build number to pin an exact build without looking up a commit SHA.
 
 Create a Docker network shared with Sonarr if you do not already have one:
 
@@ -37,7 +37,7 @@ Attach the Sonarr container to that network, then save this as `compose.yaml`:
 ```yaml
 services:
   sonarr-proxy-manager:
-    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable
+    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest
     restart: unless-stopped
     ports:
       - "127.0.0.1:8787:8787"
@@ -80,22 +80,31 @@ Start the service with `docker compose up -d`. The manager is available locally 
 
 ### Connect Sonarr
 
-Add the proxy once as an indexer in Sonarr. Upstream indexers are searched behind this single endpoint:
+Add the proxy once as a custom Torznab indexer in Sonarr. Upstream indexers are searched behind this single endpoint:
 
-1. Open **Settings → Indexers → Add Indexer → Torrent → Torznab (Custom)**.
+1. Open **Settings → Indexers → Add (+) → Torrent → Torznab → Custom**.
 2. Set the name to `Sonarr Proxy Manager`.
-3. Set the URL to `http://sonarr-proxy-manager:8787/api`. Use the proxy's reachable host and port instead if Sonarr is not on the shared Docker network.
-4. Leave the API key empty unless `PROXY_API_KEY` is set; if set, enter that exact value.
-5. Select **TV** and/or **Anime** (`5070`) categories supported by your Sonarr version, then use **Test** and **Save**.
-6. Make sure a torrent download client is configured in Sonarr. The proxy returns releases; Sonarr and its download client perform the download.
+3. Set **URL** (the base URL) to `http://sonarr-proxy-manager:8787` and **API Path** to `/api`. Use a host and port reachable from Sonarr if it is not on the shared Docker network. Do not put `/api` in both fields.
+4. Leave **API Key** empty unless `PROXY_API_KEY` is set; if it is set, enter that exact value.
+5. Enable **Interactive Search**. Enable **Automatic Search** if you want Sonarr's targeted searches to use the proxy. Leave **RSS** disabled for the intended interactive episode/season workflow; this proxy is not a weekly episode feed.
+6. Select the TV categories you need. For anime, include **Anime (5070)** in **Anime Categories** if Sonarr shows that separate field. Sonarr can populate the available categories after the first successful **Test**.
+7. Use **Test**, then **Save**. Make sure Sonarr already has a torrent download client configured; Sonarr and that client handle the download.
+
+<figure>
+  <img src="assets/screenshots/sonarr-torznab-setup.svg" alt="Illustrative Sonarr Torznab custom indexer setup showing the proxy base URL, API path, API key, search options, and categories" />
+  <figcaption>Configuration reference, not a live Sonarr screenshot. Sonarr's layout can vary by version; the values and field separation are the important part.</figcaption>
+</figure>
 
 | Setting | Value |
 | --- | --- |
-| URL | `http://sonarr-proxy-manager:8787/api` |
-| API key | Leave blank unless `PROXY_API_KEY` is set; otherwise use that value. |
-| Categories | TV / Anime, if Sonarr asks for categories. |
+| Name | `Sonarr Proxy Manager` |
+| URL (base) | `http://sonarr-proxy-manager:8787` |
+| API Path | `/api` |
+| API key | Leave blank unless `PROXY_API_KEY` is set; otherwise enter that value. |
+| Search options | Interactive Search on; Automatic Search optional; RSS off for this use case. |
+| Categories | Select needed TV categories; include Anime (`5070`) in Anime Categories for anime series when that field is shown. |
 
-The proxy advertises standard TV categories as well as Anime. Nyaa remains restricted to its configured category (`1_2` by default); other upstreams can use their own Torznab category IDs in `UPSTREAM_INDEXERS_JSON`. Sonarr and the proxy must share `sonarr-net` for the container hostname above to resolve. Manager login credentials and `PROXY_API_KEY` are separate: the former protects the browser UI, while the latter optionally protects Torznab requests.
+The proxy advertises standard TV categories as well as Anime. Nyaa remains restricted to its configured category (`1_2` by default); other upstreams can use their own Torznab category IDs in `UPSTREAM_INDEXERS_JSON`. Sonarr and the proxy must share `sonarr-net` for the container hostname above to resolve; `localhost` inside Sonarr points back to the Sonarr container, not this proxy. Manager login credentials and `PROXY_API_KEY` are separate: the former protects the browser UI, while the latter optionally protects Torznab requests. See the [Sonarr indexer settings guide](https://wiki.servarr.com/sonarr/settings#indexers) for the current field names and controls.
 
 ### Add More Indexers
 
@@ -122,6 +131,23 @@ Use `UPSTREAM_INDEXERS_JSON` to add any upstream that exposes a Torznab API, inc
 
 Each source must be reachable from the proxy container. After recreating the proxy with the updated JSON, choose **All indexers** or a specific source when creating or editing a custom rule. Existing rules migrate to **All indexers** automatically. For example, an exclude rule matching `Judas` can be limited to `Prowlarr Anime` without affecting a Judas release returned by Nyaa or another source.
 
+### Example: Add LimeTorrents Through Jackett
+
+LimeTorrents is a tracker, not a Torznab API endpoint. Add it in Jackett or Prowlarr first, then copy that tool's Torznab feed URL and use its API key in the proxy's private Compose environment. A Jackett-style entry looks like this; the exact tracker ID and URL base depend on your installation, so prefer the **Copy Torznab Feed** URL shown by Jackett:
+
+```json
+[
+  {
+    "id": "limetorrents-jackett",
+    "name": "LimeTorrents via Jackett",
+    "url": "http://jackett:9117/api/v2.0/indexers/limetorrents/results/torznab/api",
+    "api_key": "YOUR_JACKETT_API_KEY"
+  }
+]
+```
+
+The proxy must be able to reach `jackett:9117` on its Docker network. Keep the real API key out of public Compose examples and source control. See [Jackett's Torznab API format](https://github.com/Jackett/Jackett#api-usage) if you need to identify the copied feed URL.
+
 ## Built-In Rules
 
 These eight rules are enabled and locked by default. Unlocking a built-in rule permits changing its manager settings; it does not replace or redefine the matching algorithm described here.
@@ -141,18 +167,77 @@ Weekly episode searches are not a goal of this proxy: the base behavior focuses 
 
 ## Add a Custom Rule
 
-Sign in to `/manager/`, open **Custom rules**, and select **Add rule**. Custom rules are editable by default. Enter a name, the text to match, a scope, an indexer target, and an action:
+Sign in to `/manager/`, open **Custom**, and select **Add rule**. Custom rules are editable by default; the lock icon is optional protection you can turn on after saving.
 
-| Action | Effect |
+1. Enter a name for the rule and the text to find in release titles.
+2. Choose a scope: episodes and seasons, single episodes only, or season packs only.
+3. Choose **All indexers** or a specific configured source. The selector includes Nyaa and the names from `UPSTREAM_INDEXERS_JSON`.
+4. Choose an action: prefer, exclude, replace matching text, or add a title label. Replacement and label actions also need their corresponding text value.
+5. Save the rule. Click its lock control only if you want to prevent accidental edits later.
+
+### How Matching Works
+
+For each candidate release, the proxy checks your enabled custom rules after its built-in title parsing and episode/season filtering. The rule's **Title contains** value is compared with the original release title, ignoring letter case. It is a plain text substring, not a regular expression. A rule only applies when both its selected indexer and search scope match the result being processed.
+
+- **Episodes and seasons** applies to either type of search.
+- **Single episodes only** applies when Sonarr asks for a particular episode (`season` and `ep`).
+- **Season packs only** applies to a season search (`season` with no `ep`). It does not apply to an episode search that happens to return a season-pack candidate; the built-in episode filter rejects that candidate first.
+- **All indexers** applies across Nyaa and every configured Torznab source. Selecting a named indexer limits the rule to releases received from that source.
+
+### Actions
+
+| Action | What the proxy does |
 | --- | --- |
-| Prefer | Moves matching results ahead of other accepted results; seeders order results within each group. |
-| Exclude | Removes a matching result from the feed. |
-| Rewrite | Replaces the first case-insensitive occurrence of the match text in the normalized title with the replacement value. |
-| Annotate | Appends the supplied value in brackets to the normalized title. |
+| Prefer matching results | Keeps matching releases and ranks them ahead of other accepted releases. Seeder count sorts results within each group. |
+| Exclude matching results | Drops the matching release from the feed returned to Sonarr. |
+| Replace matching text | Replaces the first occurrence of the match text in the proxy-normalized title. The match itself is still tested against the original title. |
+| Add a title label | Appends the supplied value in square brackets to the proxy-normalized title, for example `[Dual Audio]`. |
 
-Matching is a case-insensitive substring check against the original release title. Choose **Episodes and seasons**, **Episode searches**, or **Season searches**, then select **All indexers** or one configured upstream and save. The rule manager writes the JSON configuration to the persistent data volume; you do not need to edit XML or hand-write rule JSON.
+The **Replacement text** or **Title label** field appears only for actions that need a value. Add multiple rules when you need distinct conditions; they are evaluated in the order shown in the custom-rule list. A matching exclude rule stops that release from being returned, even if another rule would prefer it.
 
-For example, to put Judas season packs from only one source first, add a rule with match `Judas`, scope **Season searches**, select that indexer, and choose **Prefer**. A matching Judas pack from the selected source will be listed before other accepted results, even if they have more seeders. To remove a noisy release group from just one source, choose **Exclude** and select the same indexer; choose **All indexers** to apply it across sources.
+### Example: Prefer a Season Pack from One Indexer
+
+Suppose `LimeTorrents via Jackett` is already configured as an upstream in `UPSTREAM_INDEXERS_JSON`. To rank that source's Judas season packs first without changing Nyaa results:
+
+| Field | Example value |
+| --- | --- |
+| Rule name | Prefer Judas season packs |
+| Title contains | `Judas` |
+| Search scope | Season packs only |
+| Indexer | LimeTorrents via Jackett |
+| Action | Prefer matching results |
+
+Save the rule. On a Sonarr season search, matching Judas packs from LimeTorrents via Jackett will appear ahead of other accepted releases. A Judas result from Nyaa is unaffected. To apply the preference to every source, choose **All indexers** instead.
+
+<figure>
+  <img src="assets/screenshots/rule-indexer.png" alt="Mimik capture of the custom rule Indexer menu with LimeTorrents via Jackett available alongside Nyaa" />
+  <figcaption>Mimik capture from the local documentation demo. Choose the named Torznab upstream here to scope the rule to that source; no live tracker or private configuration is shown.</figcaption>
+</figure>
+
+<figure>
+  <img src="assets/screenshots/rule-library.png" alt="Mimik capture of a saved Judas season-pack preference targeted to LimeTorrents via Jackett" />
+  <figcaption>Saved rule from the same local demo. The summary confirms the Judas title match, season-search scope, and LimeTorrents target; the screenshots use fictional data and no private configuration.</figcaption>
+</figure>
+
+### Example: Exclude One Release Group
+
+To remove a noisy release group only from one source, create a rule such as:
+
+| Field | Example value |
+| --- | --- |
+| Rule name | Exclude noisy group from Prowlarr |
+| Title contains | `[NoisyGroup]` |
+| Search scope | Episodes and seasons |
+| Indexer | Prowlarr Anime |
+| Action | Exclude matching results |
+
+The match text may include brackets or other literal characters. If the same title appears from Nyaa or another indexer, that copy remains eligible. Choose **All indexers** only when you intend to exclude every copy.
+
+### Saving and Locking Rules
+
+Rules save automatically to the persistent `/data/custom-rules.json` file. **Export configuration** downloads a backup you can keep with your deployment notes. Custom rules start unlocked so they can be edited or removed; click their lock control when you want to protect a finished rule. Built-in rules start locked because their underlying behavior is part of the proxy, and changing their displayed settings does not create a new matching algorithm. Unlocking those entries only allows editing their manager settings.
+
+You do not need to write XML or edit JSON to create a rule. XML is the Torznab response format sent to Sonarr; the rule manager provides the supported way to add and change rules.
 
 ## Torznab Requests and XML Examples
 
@@ -281,11 +366,19 @@ docker build -t sonarr-proxy-manager:dev .
 
 Every successful push to `main` runs tests, checks the manager scripts, and publishes these GitHub Container Registry tags:
 
-- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable`
+- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest`
 - `ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev`
-- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:sha-<commit>`
+- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:build-<number>`
 
-`stable` and `dev` are rolling tags for the main-branch build; use the commit-specific tag when you need to pin an exact image.
+`latest` and `dev` are rolling tags for the newest main-branch build. Your personal development stack can remain on `dev`; use `latest` for normal installs. To pin a particular build, open the [container publishing workflow](https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager/actions/workflows/publish-dev.yml), find the run number shown for a successful build, and use that number in the tag. For example, build number `42` is `ghcr.io/deepdaddyttv/sonarr-proxy-manager:build-42`. The number is the GitHub Actions workflow run number, not a commit hash.
+
+For example, to pin build number `42`, set the Compose image to:
+
+```yaml
+image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:build-42
+```
+
+Replace `42` with the successful build's run number, then run `docker compose pull sonarr-proxy-manager && docker compose up -d sonarr-proxy-manager`.
 
 ## License
 
