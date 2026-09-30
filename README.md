@@ -186,7 +186,7 @@ The following abbreviated feed item illustrates an accepted Nyaa episode result 
      xmlns:torznab="http://torznab.com/schemas/2015/feed">
   <channel>
     <title>Sonarr Proxy Manager</title>
-    <description>Nyaa results with Sonarr-friendly season-pack titles</description>
+    <description>Filtered indexer results with Sonarr-friendly season and episode titles</description>
     <item>
       <title>[Judas] Moonrise S01E06 1080p [Dual Audio] [Japanese English]</title>
       <guid isPermaLink="true">https://nyaa.si/view/1234567</guid>
