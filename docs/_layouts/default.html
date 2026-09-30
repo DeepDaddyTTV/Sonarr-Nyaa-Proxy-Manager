@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="{{ page.lang | default: 'en' }}">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#171818" />
+    <meta name="description" content="{{ site.description | escape }}" />
+    <title>{{ page.title | default: site.title | escape }}</title>
+    <link rel="icon" href="{{ '/assets/electronic.png' | relative_url }}" />
+    <link rel="stylesheet" href="{{ '/assets/guide.css' | relative_url }}" />
+  </head>
+  <body>
+    <a class="skip-link" href="#guide-content">Skip to guide</a>
+    <header class="topbar">
+      <a class="brand" href="{{ '/' | relative_url }}" aria-label="Sonarr Proxy Manager guide home">
+        <span class="brand-mark" aria-hidden="true"></span>
+        <span><strong>Sonarr Proxy Manager</strong><small>PROJECT GUIDE</small></span>
+      </a>
+      <nav class="topbar-actions" aria-label="Project links">
+        <a class="utility-link" href="{{ '/' | relative_url }}">Wiki</a>
+        <a class="utility-link" href="https://buymeacoffee.com/deepdaddyttv" target="_blank" rel="noreferrer">Buy Me a Coffee</a>
+        <a class="utility-link github-link" href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager" target="_blank" rel="noreferrer">GitHub</a>
+        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
+          <span class="theme-symbol" aria-hidden="true"></span><span id="themeLabel">Light mode</span>
+        </button>
+      </nav>
+    </header>
+    <main id="guide-content" class="guide-shell">
+      <div class="guide-heading">
+        <p class="eyebrow">FIELD GUIDE <span></span> SONARR INTEGRATION</p>
+        <h1>{{ page.title | default: site.title | escape }}</h1>
+        <p class="lede">Route searches through a Torznab proxy, keep episodes and season packs distinct, and shape results with indexer-specific rules.</p>
+      </div>
+      <article class="guide-content">
+        {{ content }}
+      </article>
+      <footer class="guide-footer">
+        <span>SONARR PROXY MANAGER</span>
+        <div><a href="{{ '/' | relative_url }}">Project guide</a><a href="https://buymeacoffee.com/deepdaddyttv" target="_blank" rel="noreferrer">Support the project</a></div>
+      </footer>
+    </main>
+    <script>
+      (() => {
+        const root = document.documentElement;
+        const button = document.getElementById("themeToggle");
+        const label = document.getElementById("themeLabel");
+        let theme = "dark";
+        try { theme = localStorage.getItem("sonarr-proxy-manager.theme") || "dark"; } catch {}
+        const apply = value => {
+          theme = value === "light" ? "light" : "dark";
+          root.dataset.theme = theme;
+          document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#171818" : "#f5f3ef";
+          label.textContent = theme === "dark" ? "Light mode" : "Dark mode";
+          button.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
+        };
+        apply(theme);
+        button.addEventListener("click", () => {
+          apply(theme === "dark" ? "light" : "dark");
+          try { localStorage.setItem("sonarr-proxy-manager.theme", theme); } catch {}
+        });
+      })();
+    </script>
+  </body>
+</html>

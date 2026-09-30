@@ -1,5 +1,5 @@
-const SCHEMA_VERSION = 3;
-const STORAGE_KEY = "sonarr-proxy-manager.rules.v3";
+const SCHEMA_VERSION = 4;
+const STORAGE_KEY = "sonarr-proxy-manager.rules.v4";
 const THEME_KEY = "sonarr-proxy-manager.theme";
 const ruleCatalog = [
   { id: "year-hygiene", type: "Title rewrite", name: "Strip release years", description: "Removes bracketed years before classification so release years are not mistaken for episode numbers." },
@@ -8,15 +8,16 @@ const ruleCatalog = [
   { id: "season-isolation", type: "Season filter", name: "Season scans stay seasonal", description: "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season." },
   { id: "series-anchor", type: "Series safety", name: "Anchor the series match", description: "Requires meaningful title words to match, reducing substring results for a different show." },
   { id: "query-expansion", type: "Search strategy", name: "Expand release queries", description: "Searches padded, unpadded, ordinal, and year-aware season forms to retain additional release-group results." },
-  { id: "direct-torrent", type: "Delivery", name: "Provide torrent links", description: "Uses Nyaa's torrent download URL for accepted releases." },
+  { id: "direct-torrent", type: "Delivery", name: "Provide torrent links", description: "Uses the upstream indexer's download link for accepted releases." },
   { id: "dual-audio", type: "Languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
 ];
 const byId = id => document.getElementById(id);
 const siteSelectRoots = [];
+let indexerCatalog = [{ id: "nyaa", name: "Nyaa" }];
 const els = Object.fromEntries([
   "defaultRules", "customRules", "defaultSection", "customSection", "emptyState", "noResults",
   "ruleDialog", "ruleForm", "ruleName", "ruleDescription", "descriptionField", "customFields",
-  "ruleMatch", "ruleScope", "ruleAction", "ruleValue", "valueField", "valueLabel", "editorError",
+  "ruleMatch", "ruleScope", "ruleIndexer", "ruleAction", "ruleValue", "valueField", "valueLabel", "editorError",
   "themeToggle", "themeIcon", "themeLabel", "saveStatus", "feedback", "ruleSearch", "stateFilter",
 ].map(id => [id, byId(id)]));
 
@@ -33,6 +34,23 @@ function syncSiteSelect(root) {
   trigger.querySelector(".site-select-value").textContent = selected?.textContent || select.value;
   trigger.setAttribute("aria-label", `${root.dataset.selectLabel}, ${selected?.textContent || select.value}`);
   root.querySelectorAll(".site-option").forEach(option => option.setAttribute("aria-selected", String(option === selected)));
+}
+function refreshSiteSelect(root) {
+  const select = root?.querySelector("select");
+  const menu = root?.querySelector(".site-select-menu");
+  if (!select || !menu) return;
+  menu.replaceChildren();
+  [...select.options].forEach(option => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.className = "site-option";
+    item.setAttribute("role", "option");
+    item.dataset.value = option.value;
+    item.innerHTML = '<span class="site-option-check" aria-hidden="true"></span><span class="site-option-label"></span>';
+    item.querySelector(".site-option-label").textContent = option.textContent;
+    menu.append(item);
+  });
+  syncSiteSelect(root);
 }
 function syncSiteSelects() { siteSelectRoots.forEach(syncSiteSelect); }
 function setSiteOptionFocus(root, index) {
@@ -164,13 +182,28 @@ function initialConfig() {
     customRules: [],
   };
 }
+function indexerName(id) {
+  if (!id || id === "all") return "All indexers";
+  return indexerCatalog.find(indexer => indexer.id === id)?.name || `Unavailable (${id})`;
+}
+function setIndexerOptions(selectedId = "all") {
+  const select = els.ruleIndexer;
+  if (!select) return;
+  const options = [{ id: "all", name: "All indexers" }, ...indexerCatalog];
+  if (selectedId !== "all" && !options.some(indexer => indexer.id === selectedId)) {
+    options.push({ id: selectedId, name: `Unavailable (${selectedId})` });
+  }
+  select.replaceChildren(...options.map(indexer => new Option(indexer.name, indexer.id)));
+  select.value = selectedId;
+  refreshSiteSelect(select.closest(".site-select"));
+}
 function normalizeConfig(payload) {
   const normalized = initialConfig();
   if (payload && typeof payload.defaults === "object" && !Array.isArray(payload.defaults)) {
     for (const rule of ruleCatalog) {
       const incoming = payload.defaults[rule.id];
       if (incoming && typeof incoming === "object") normalized.defaults[rule.id] = { ...normalized.defaults[rule.id], ...incoming };
-      if (payload.schemaVersion !== SCHEMA_VERSION) normalized.defaults[rule.id].locked = true;
+      if (Number(payload.schemaVersion) < 3) normalized.defaults[rule.id].locked = true;
     }
   }
   if (Array.isArray(payload?.customRules)) normalized.customRules = payload.customRules;
@@ -194,6 +227,15 @@ function showError(message) { els.feedback.textContent = message; els.feedback.h
 
 async function hydrateRules() {
   try {
+    const indexersResponse = await fetch("/manager/api/indexers");
+    if (indexersResponse.status === 401 || indexersResponse.status === 503) { window.location.assign("/manager/login"); return; }
+    if (!indexersResponse.ok) throw new Error("Could not load configured indexers.");
+    const configuredIndexers = await indexersResponse.json();
+    if (!Array.isArray(configuredIndexers) || configuredIndexers.some(indexer => typeof indexer.id !== "string" || typeof indexer.name !== "string")) {
+      throw new Error("The configured indexer list is invalid.");
+    }
+    indexerCatalog = configuredIndexers;
+    setIndexerOptions(els.ruleIndexer.value || "all");
     const response = await fetch("/manager/api/rules");
     if (response.status === 401 || response.status === 503) { window.location.assign("/manager/login"); return; }
     if (!response.ok) throw new Error("Could not load rules. Reload the page to try again.");
@@ -250,7 +292,7 @@ function ruleRow(rule, kind, number, type) {
   const locked = rule.locked === true;
   const blocked = !canSave || isSaving;
   const disabled = blocked || locked;
-  const description = kind === "default" ? rule.description : `Title contains "${rule.match}". ${scopeLabel(rule.scope)}${rule.value ? ` / ${rule.value}` : ""}.`;
+  const description = kind === "default" ? rule.description : `Title contains "${rule.match}". ${scopeLabel(rule.scope)}. ${indexerName(rule.indexer)}${rule.value ? ` / ${rule.value}` : ""}.`;
   return `<article class="rule-row ${kind === "custom" ? "custom-row" : ""} ${rule.enabled ? "" : "is-disabled"}" data-kind="${kind}" data-id="${escapeHtml(rule.id)}">
     <div class="rule-title"><span class="rule-number" aria-hidden="true">${number}</span><div class="rule-copy"><button class="rule-name" type="button" data-action="edit" ${disabled ? "disabled" : ""} aria-label="Edit ${escapeHtml(rule.name)}">${escapeHtml(rule.name)}</button><p class="rule-description">${escapeHtml(description)}</p></div></div>
     <span class="behavior-tag">${escapeHtml(type)}</span>
@@ -262,7 +304,7 @@ function ruleRow(rule, kind, number, type) {
 function matchesFilters(rule) {
   const query = els.ruleSearch.value.trim().toLowerCase();
   const state = els.stateFilter.value;
-  if (query && ![rule.name, rule.description, rule.type, rule.match, rule.action, rule.scope, rule.value].filter(Boolean).join(" ").toLowerCase().includes(query)) return false;
+  if (query && ![rule.name, rule.description, rule.type, rule.match, rule.action, rule.scope, rule.indexer, indexerName(rule.indexer), rule.value].filter(Boolean).join(" ").toLowerCase().includes(query)) return false;
   if (state === "enabled" && !rule.enabled) return false;
   if (state === "disabled" && rule.enabled) return false;
   if (state === "locked" && !rule.locked) return false;
@@ -346,6 +388,7 @@ function openEditor(kind = "custom", id = null) {
   els.ruleDescription.value = rule?.description || "";
   els.ruleMatch.value = rule?.match || "";
   els.ruleScope.value = rule?.scope || "all";
+  setIndexerOptions(rule?.indexer || "all");
   els.ruleAction.value = rule?.action || "prefer";
   els.ruleValue.value = rule?.value || "";
   syncSiteSelects();
@@ -414,7 +457,7 @@ els.ruleForm.addEventListener("submit", async event => {
     els.editorError.hidden = false;
     return;
   }
-  const updates = kind === "default" ? { name, description: els.ruleDescription.value.trim() } : { name, match, scope: els.ruleScope.value, action: els.ruleAction.value, value };
+  const updates = kind === "default" ? { name, description: els.ruleDescription.value.trim() } : { name, match, scope: els.ruleScope.value, indexer: els.ruleIndexer.value, action: els.ruleAction.value, value };
   const savedId = id || crypto.randomUUID();
   const saved = await saveChanges(candidate => {
     if (id) Object.assign(findRule(kind, id, candidate), updates);

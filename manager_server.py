@@ -20,7 +20,7 @@ from nyaa_proxy_runtime_patch import install
 
 
 ROOT = Path(__file__).resolve().parent
-SCHEMA_VERSION = 3
+SCHEMA_VERSION = 4
 RULES_PATH = Path(os.environ.get("RULES_PATH", "/data/custom-rules.json"))
 AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
@@ -41,7 +41,7 @@ RULE_CATALOG = {
     "season-isolation": ("Season scans stay seasonal", "season filter", "Excludes single episodes and partial ranges from season searches while keeping full packs for the requested season."),
     "series-anchor": ("Anchor the series match", "series safety", "Requires meaningful title words to match, reducing substring results for a different show."),
     "query-expansion": ("Expand release queries", "search strategy", "Searches padded, unpadded, ordinal, and year-aware season forms to retain additional release-group results."),
-    "direct-torrent": ("Provide torrent links", "delivery", "Uses Nyaa's torrent download URL for accepted releases."),
+    "direct-torrent": ("Provide torrent links", "delivery", "Uses the upstream indexer's download link for accepted releases."),
     "dual-audio": ("Annotate Dual Audio", "languages", "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages."),
 }
 STATIC_FILES = {
@@ -82,6 +82,7 @@ def _normalize_custom_rule(rule: dict, *, strict: bool) -> dict | None:
     action = str(rule.get("action") or "exclude")
     scope = str(rule.get("scope") or "all")
     value = str(rule.get("value") or "").strip()[:120]
+    indexer = str(rule.get("indexer") or "all").strip()[:64]
     enabled = rule.get("enabled", True)
     locked = rule.get("locked", False)
     if action == "keep":
@@ -93,6 +94,8 @@ def _normalize_custom_rule(rule: dict, *, strict: bool) -> dict | None:
             raise ValueError("Custom rules need a name and a title match")
         if action not in actions or scope not in scopes:
             raise ValueError("Custom rule action or search scope is not supported")
+        if indexer != "all" and not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", indexer):
+            raise ValueError("Custom rule indexer must be All indexers or a configured indexer id")
         if action in {"rewrite", "annotate"} and not value:
             raise ValueError("Rewrite and annotation rules need a replacement value")
         if not isinstance(enabled, bool) or not isinstance(locked, bool):
@@ -105,6 +108,7 @@ def _normalize_custom_rule(rule: dict, *, strict: bool) -> dict | None:
         "match": match,
         "action": action,
         "scope": scope,
+        "indexer": indexer,
         "value": value,
         "enabled": bool(enabled),
         "locked": bool(locked),
@@ -162,8 +166,12 @@ def normalize_rules_config(payload: object, *, strict: bool = False) -> dict:
                         continue
                     defaults[rule_id][key] = settings[key].strip()[:limit]
     # Older managers initialized every built-in rule as unlocked. Protect them
-    # once on upgrade, then preserve deliberate unlocks in version 3 settings.
-    if not strict and payload.get("schemaVersion") != SCHEMA_VERSION:
+    # once on upgrade, then preserve deliberate unlocks from schema version 3.
+    try:
+        previous_version = int(payload.get("schemaVersion", 0))
+    except (TypeError, ValueError):
+        previous_version = 0
+    if not strict and previous_version < 3:
         for settings in defaults.values():
             settings["locked"] = True
     custom = payload.get("customRules", [])
@@ -222,7 +230,7 @@ def validate_lock_transitions(current: dict, updated: dict) -> None:
         candidate = updated_custom.get(previous["id"])
         if candidate is None:
             raise ValueError(f"Unlock {previous['id']} before removing it")
-        fields = ("enabled", "name", "match", "action", "scope", "value")
+        fields = ("enabled", "name", "match", "action", "scope", "indexer", "value")
         if any(candidate.get(key) != previous.get(key) for key in fields):
             raise ValueError(f"Unlock {previous['id']} before changing its settings")
 
@@ -361,6 +369,11 @@ def install_manager_routes() -> None:
             if not require_manager_auth(self):
                 return
             write_json(self, HTTPStatus.OK, RULES_CONFIG)
+            return
+        if path == "/manager/api/indexers":
+            if not require_manager_auth(self):
+                return
+            write_json(self, HTTPStatus.OK, proxy.public_indexers())
             return
         proxy_get(self)
 

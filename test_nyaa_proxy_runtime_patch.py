@@ -1,9 +1,12 @@
 import unittest
+import urllib.parse
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace as dataclass_replace
 from types import SimpleNamespace
 
 import nyaa_proxy_runtime_patch as proxy
+import nyaa_season_proxy as base_proxy
 
 
 FIXTURES = [
@@ -130,6 +133,18 @@ class ProxyFixtureTests(unittest.TestCase):
         )
         self.assertEqual(items[1].findall("{http://torznab.com/schemas/2015/feed}attr"), [])
 
+    def test_capabilities_advertise_regular_tv_and_anime_categories(self):
+        root = ET.fromstring(base_proxy.caps_xml())
+        categories = {
+            category.get("id")
+            for category in root.findall("./categories/category")
+        }
+        categories.update(
+            subcat.get("id")
+            for subcat in root.findall("./categories/category/subcat")
+        )
+        self.assertTrue({"5000", "5070"}.issubset(categories))
+
     def test_episode_ranges_are_not_misclassified_as_single_episodes(self):
         title = "[Judas] My Show S01E01-E12 [1080p]"
         parsed = proxy.parse_release_title(title, 1)
@@ -137,6 +152,55 @@ class ProxyFixtureTests(unittest.TestCase):
         self.assertEqual(parsed.episode_start, 1)
         self.assertEqual(parsed.episode_end, 12)
         self.assertEqual(proxy.rewrite_title(title, parsed), "[Judas] My Show S01 [1080p]")
+
+    def test_torznab_upstream_items_preserve_download_metadata(self):
+        source = {
+            "id": "prowlarr-3", "name": "Example Tracker", "url": "http://tracker.example/api",
+            "api_key": "secret", "categories": ["5000", "5070"], "type": "torznab",
+        }
+        payload = b'''<rss xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel>
+          <item><title>[Judas] Show S01E02 [Dual Audio]</title><guid>https://tracker.example/view/123</guid>
+          <link>https://tracker.example/download/123.torrent</link><pubDate>Mon, 01 Jun 2026 12:00:00 +0000</pubDate>
+          <enclosure url="https://tracker.example/download/123.torrent" length="1536" />
+          <torznab:attr name="category" value="5070" /><torznab:attr name="seeders" value="12" />
+          <torznab:attr name="peers" value="17" /><torznab:attr name="grabs" value="40" />
+          <torznab:attr name="infohash" value="0123456789abcdef" /></item>
+        </channel></rss>'''
+
+        class Response:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_args):
+                return False
+
+            def read(self):
+                return payload
+
+        with patch.object(base_proxy, "configured_indexers", return_value=[source]), patch.object(base_proxy.urllib.request, "urlopen", return_value=Response()) as open_url:
+            found = base_proxy.fetch_torznab("Show S01E02", "prowlarr-3", "1", "2")
+
+        self.assertEqual(len(found), 1)
+        release = found[0]
+        self.assertEqual(release.indexer_id, "prowlarr-3")
+        self.assertEqual(release.indexer_name, "Example Tracker")
+        self.assertEqual(release.download_url, "https://tracker.example/download/123.torrent")
+        self.assertEqual((release.seeders, release.leechers, release.downloads), (12, 5, 40))
+        self.assertEqual(release.size_bytes, 1536)
+        self.assertEqual(release.guid, "prowlarr-3:https://tracker.example/view/123")
+        feed = ET.fromstring(base_proxy.feed_xml(found, "http://proxy.example/api"))
+        feed_item = feed.find("./channel/item")
+        self.assertEqual(
+            feed_item.find("{http://torznab.com/schemas/2015/feed}attr").get("value"),
+            "5070",
+        )
+        request_url = open_url.call_args.args[0].full_url
+        params = urllib.parse.parse_qs(urllib.parse.urlsplit(request_url).query)
+        self.assertEqual(params["apikey"], ["secret"])
+        self.assertEqual(params["cat"], ["5000,5070"])
+        self.assertEqual(params["season"], ["1"])
+        self.assertEqual(params["ep"], ["2"])
+        self.assertNotIn("secret", repr(release))
 
 
 class RuntimeCollectionTests(unittest.TestCase):
@@ -149,6 +213,8 @@ class RuntimeCollectionTests(unittest.TestCase):
             guid: str
             seeders: int
             download_url: str = "https://nyaa.example/download.torrent"
+            indexer_id: str = "nyaa"
+            indexer_name: str = "Nyaa"
 
             @property
             def magnet_url(self):
@@ -177,6 +243,8 @@ class RuntimeCollectionTests(unittest.TestCase):
             feed_xml=to_feed,
             query_bases=lambda _params, _season: ["My Show"],
             fetch_nyaa=lambda _query: releases,
+            fetch_torznab=lambda *_args: [],
+            configured_indexers=lambda: [{"id": "nyaa", "name": "Nyaa"}],
             first=lambda _params, _key, default="": default,
             parse_season=lambda value: int(value) if value and str(value).isdigit() else None,
             fetch_sonarr_series=lambda: [],
@@ -230,6 +298,25 @@ class RuntimeCollectionTests(unittest.TestCase):
         found = module._proxy_collect(["My Show"], "1", "2", None)
         self.assertEqual(len(found), 1)
         self.assertIn("[Preferred]", found[0].normalized_title)
+
+    def test_custom_rule_only_applies_to_its_selected_indexer(self):
+        releases = [
+            self.release("[Judas] My Show S01E02", 30),
+            self.release("[Judas] My Show S01E02", 90),
+        ]
+        releases[1] = dataclass_replace(releases[1], indexer_id="alt", indexer_name="Alt")
+        rules = {
+            "defaults": {"query-expansion": {"enabled": False}},
+            "customRules": [{
+                "enabled": True, "scope": "all", "indexer": "alt", "match": "Judas", "action": "exclude",
+            }],
+        }
+        module = self.make_module([releases[0]], rules)
+        module.fetch_torznab = lambda *_args: [releases[1]]
+        module.configured_indexers = lambda: [{"id": "nyaa", "name": "Nyaa"}, {"id": "alt", "name": "Alt"}]
+        proxy.install(module, lambda: rules)
+        found = module._proxy_collect(["My Show"], "1", "2", None)
+        self.assertEqual([item.indexer_id for item in found], ["nyaa"])
 
 
 if __name__ == "__main__":

@@ -63,6 +63,7 @@ USER_AGENT = os.environ.get(
     "USER_AGENT",
     "sonarr-proxy-manager/1.0",
 )
+INDEXER_SOURCES = None
 TRACKERS = [
     "udp://open.stealth.si:80/announce",
     "udp://tracker.opentrackr.org:1337/announce",
@@ -94,10 +95,14 @@ class Release:
     info_hash: str
     category_id: str
     category_name: str
+    indexer_id: str = "nyaa"
+    indexer_name: str = "Nyaa"
+    source_guid: str = ""
 
     @property
     def guid(self) -> str:
-        return self.details_url or self.download_url or self.info_hash or self.title
+        value = self.details_url or self.source_guid or self.download_url or self.info_hash or self.title
+        return value if self.indexer_id == "nyaa" else f"{self.indexer_id}:{value}"
 
     @property
     def magnet_url(self) -> str:
@@ -359,6 +364,154 @@ def parse_size(size_text: str) -> int:
     return int(value * multipliers.get(unit, 1))
 
 
+def configured_indexers() -> List[dict]:
+    """Return Nyaa plus configured Torznab sources, without exposing secrets."""
+    global INDEXER_SOURCES
+    if INDEXER_SOURCES is not None:
+        return INDEXER_SOURCES
+
+    raw = os.environ.get("UPSTREAM_INDEXERS_JSON", LOCAL_CONFIG.get("upstream_indexers", "[]"))
+    if isinstance(raw, str):
+        try:
+            extras = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise RuntimeError("UPSTREAM_INDEXERS_JSON must contain a JSON array") from error
+    else:
+        extras = raw
+    if not isinstance(extras, list) or len(extras) > 19:
+        raise RuntimeError("UPSTREAM_INDEXERS_JSON must be an array with at most 19 additional indexers")
+
+    sources = [{
+        "id": "nyaa",
+        "name": "Nyaa",
+        "type": "nyaa",
+        "url": NYAA_BASE_URL,
+        "category": NYAA_CATEGORY,
+        "filter": NYAA_FILTER,
+        "api_key": "",
+        "categories": [],
+    }]
+    ids = {"nyaa"}
+    for entry in extras:
+        if not isinstance(entry, dict):
+            raise RuntimeError("Each upstream indexer must be an object")
+        indexer_id = str(entry.get("id") or "")
+        name = str(entry.get("name") or "").strip()
+        url = str(entry.get("url") or "").strip()
+        parsed = urllib.parse.urlsplit(url)
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", indexer_id) or indexer_id in ids:
+            raise RuntimeError("Upstream indexer ids must be unique letters, numbers, underscores, or hyphens")
+        if not name or len(name) > 64:
+            raise RuntimeError(f"Upstream indexer {indexer_id!r} needs a name of 1 to 64 characters")
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname or parsed.username or parsed.password:
+            raise RuntimeError(f"Upstream indexer {indexer_id!r} needs an HTTP or HTTPS Torznab API URL")
+        categories = entry.get("categories", [])
+        if isinstance(categories, str):
+            categories = [value.strip() for value in categories.split(",") if value.strip()]
+        if not isinstance(categories, list) or any(not str(value).isdigit() for value in categories):
+            raise RuntimeError(f"Upstream indexer {indexer_id!r} categories must be numeric Torznab IDs")
+        sources.append({
+            "id": indexer_id,
+            "name": name,
+            "type": "torznab",
+            "url": url,
+            "api_key": str(entry.get("api_key") or ""),
+            "categories": [str(value) for value in categories],
+        })
+        ids.add(indexer_id)
+    INDEXER_SOURCES = sources
+    return sources
+
+
+def public_indexers() -> List[dict]:
+    return [{"id": source["id"], "name": source["name"]} for source in configured_indexers()]
+
+
+def fetch_torznab(query: str, indexer_id: str, season: Optional[str] = None, episode: Optional[str] = None) -> List[Release]:
+    source = next((item for item in configured_indexers() if item["id"] == indexer_id), None)
+    if source is None or source["type"] != "torznab":
+        return []
+
+    cache_key = f"{indexer_id}|{query}|{season or ''}|{episode or ''}"
+    cached = _CACHE.get(cache_key)
+    now = time.time()
+    if cached and now - cached[0] < CACHE_TTL_SECONDS:
+        return cached[1]
+
+    params = [("t", "tvsearch"), ("q", query), ("limit", "100")]
+    if season:
+        params.append(("season", season))
+    if episode:
+        params.append(("ep", episode))
+    if source["categories"]:
+        params.append(("cat", ",".join(source["categories"])))
+    if source["api_key"]:
+        params.append(("apikey", source["api_key"]))
+    parts = urllib.parse.urlsplit(source["url"])
+    replaced = {key for key, _value in params}
+    existing_query = [
+        (key, value)
+        for key, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
+        if key not in replaced
+    ]
+    url = urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(existing_query + params)))
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
+        payload = response.read()
+
+    root = ET.fromstring(payload)
+    releases = [parse_torznab_item(item, source) for item in root.findall("./channel/item")]
+    releases = [release for release in releases if release is not None]
+    _CACHE[cache_key] = (now, releases)
+    return releases
+
+
+def parse_torznab_item(item: ET.Element, source: dict) -> Optional[Release]:
+    def text(path: str) -> str:
+        child = item.find(path)
+        return child.text.strip() if child is not None and child.text else ""
+
+    def attr(name: str) -> str:
+        for child in item.findall(f"{{{TORZNAB_NS}}}attr"):
+            if (child.get("name") or "").casefold() == name.casefold():
+                return child.get("value", "")
+        return ""
+
+    title = text("title")
+    if not title:
+        return None
+    enclosure = item.find("enclosure")
+    link = text("link") or (enclosure.get("url", "") if enclosure is not None else "")
+    magnet_url = attr("magneturl")
+    if not link:
+        link = magnet_url
+    guid = text("guid")
+    comments = text("comments")
+    details_url = comments or (guid if guid.startswith(("http://", "https://")) else "")
+    size = text("size") or attr("size") or (enclosure.get("length", "") if enclosure is not None else "")
+    category = attr("category")
+    category_name = attr("categoryname")
+    seeders = parse_int(attr("seeders"))
+    peers = parse_int(attr("peers"))
+    return Release(
+        title=title,
+        normalized_title=normalize_title(title),
+        details_url=details_url,
+        download_url=link,
+        pub_date=text("pubDate"),
+        size_bytes=parse_size(size) if not size.isdigit() else int(size),
+        seeders=seeders,
+        leechers=max(0, peers - seeders),
+        downloads=parse_int(attr("grabs")),
+        info_hash=attr("infohash"),
+        category_id=category or "5000",
+        category_name=category_name or "TV",
+        indexer_id=source["id"],
+        indexer_name=source["name"],
+        source_guid=guid,
+    )
+
+
 def nyaa_rss_url(query: str) -> str:
     params = {
         "page": "rss",
@@ -459,7 +612,19 @@ def caps_xml() -> bytes:
 
     categories = ET.SubElement(caps, "categories")
     tv = ET.SubElement(categories, "category", id="5000", name="TV")
-    ET.SubElement(tv, "subcat", id="5070", name="Anime")
+    for category_id, name in (
+        ("5020", "Foreign"),
+        ("5030", "SD"),
+        ("5040", "HD"),
+        ("5045", "UHD"),
+        ("5070", "Anime"),
+        ("5080", "Documentary"),
+        ("5090", "Other"),
+        ("5100", "WEB-DL"),
+        ("5110", "WEBRip"),
+        ("5120", "HDTV"),
+    ):
+        ET.SubElement(tv, "subcat", id=category_id, name=name)
 
     return xml_bytes(caps)
 
@@ -473,8 +638,8 @@ def feed_xml(releases: Iterable[Release], self_url: str) -> bytes:
     )
     channel = ET.SubElement(rss, "channel")
     ET.SubElement(channel, "title").text = "Sonarr Proxy Manager"
-    ET.SubElement(channel, "description").text = "Nyaa results with Sonarr-friendly season-pack titles"
-    ET.SubElement(channel, "link").text = NYAA_BASE_URL
+    ET.SubElement(channel, "description").text = "Filtered indexer results with Sonarr-friendly season and episode titles"
+    ET.SubElement(channel, "link").text = self_url
     ET.SubElement(channel, "{http://www.w3.org/2005/Atom}link", href=self_url, rel="self", type="application/rss+xml")
 
     for release in releases:
@@ -500,7 +665,8 @@ def feed_xml(releases: Iterable[Release], self_url: str) -> bytes:
                 type="application/x-bittorrent",
             )
 
-        add_torznab_attr(item, "category", "5070")
+        category_id = "5070" if release.indexer_id == "nyaa" else (release.category_id or "5000")
+        add_torznab_attr(item, "category", category_id)
         add_torznab_attr(item, "seeders", str(release.seeders))
         add_torznab_attr(item, "peers", str(release.seeders + release.leechers))
         add_torznab_attr(item, "grabs", str(release.downloads))
@@ -521,7 +687,7 @@ def xml_bytes(root: ET.Element) -> bytes:
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "NyaaSeasonProxy/1.0"
+    server_version = "SonarrProxyManager/1.0"
 
     def do_GET(self) -> None:
         parsed = urllib.parse.urlparse(self.path)

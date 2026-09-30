@@ -257,6 +257,8 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
     original_feed_xml = module.feed_xml
     original_query_bases = module.query_bases
     original_fetch_nyaa = module.fetch_nyaa
+    original_fetch_torznab = getattr(module, "fetch_torznab", lambda *_args: [])
+    indexers_provider = getattr(module, "configured_indexers", lambda: [{"id": "nyaa", "name": "Nyaa", "type": "nyaa"}])
     original_first = module.first
     original_parse_season = module.parse_season
     original_fetch_sonarr_series = getattr(module, "fetch_sonarr_series", lambda: [])
@@ -296,80 +298,99 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
         is_season_search = requested_season is not None and requested_episode is None
         results: Dict[str, object] = {}
         preferred_releases: set[str] = set()
+        sources = indexers_provider()
         for query in queries:
             variants = (
                 search_variants(query, requested_season, requested_episode, series_year)
                 if default_enabled("query-expansion")
                 else [query]
             )
-            for variant in variants:
-                try:
-                    for release in original_fetch_nyaa(variant):
-                        if not matches_series(release, query):
-                            continue
-                        parsed = parse_release_title(
-                            release.title,
-                            requested_season,
-                            strip_year=default_enabled("year-hygiene"),
-                        )
-                        if is_episode_search and default_enabled("episode-isolation"):
-                            if parsed.kind != "episode" or parsed.episode_start != requested_episode or parsed.season != requested_season:
+            for variant_index, variant in enumerate(variants):
+                for source in sources:
+                    # Keep federated TV API traffic bounded while Nyaa retains the full expansion set.
+                    if source["id"] != "nyaa" and variant_index >= 3:
+                        continue
+                    try:
+                        if source["id"] == "nyaa":
+                            source_releases = original_fetch_nyaa(variant)
+                        else:
+                            source_releases = original_fetch_torznab(
+                                variant,
+                                source["id"],
+                                season,
+                                episode,
+                            )
+                        for release in source_releases:
+                            if getattr(release, "indexer_id", source["id"]) != source["id"]:
+                                release = replace(release, indexer_id=source["id"], indexer_name=source["name"])
+                            if not matches_series(release, query):
                                 continue
-                        elif is_season_search and default_enabled("season-isolation"):
-                            if parsed.kind in ("episode", "range"):
+                            parsed = parse_release_title(
+                                release.title,
+                                requested_season,
+                                strip_year=default_enabled("year-hygiene"),
+                            )
+                            if is_episode_search and default_enabled("episode-isolation"):
+                                if parsed.kind != "episode" or parsed.episode_start != requested_episode or parsed.season != requested_season:
+                                    continue
+                            elif is_season_search and default_enabled("season-isolation"):
+                                if parsed.kind in ("episode", "range"):
+                                    continue
+                                if parsed.season not in (None, requested_season):
+                                    continue
+                            elif not is_episode_search and not is_season_search and parsed.kind not in ("pack", "unknown"):
                                 continue
-                            if parsed.season not in (None, requested_season):
-                                continue
-                        elif not is_episode_search and not is_season_search and parsed.kind not in ("pack", "unknown"):
-                            continue
 
-                        normalized_title = rewrite_title(
-                            release.title,
-                            parsed,
-                            normalize=default_enabled("season-classification"),
-                            dual_audio=default_enabled("dual-audio"),
-                        )
-                        excluded = False
-                        matched_preferences = False
-                        for rule in custom_rules:
-                            if not rule.get("enabled", True):
+                            normalized_title = rewrite_title(
+                                release.title,
+                                parsed,
+                                normalize=default_enabled("season-classification"),
+                                dual_audio=default_enabled("dual-audio"),
+                            )
+                            excluded = False
+                            matched_preferences = False
+                            for rule in custom_rules:
+                                if not rule.get("enabled", True):
+                                    continue
+                                indexer = rule.get("indexer", "all")
+                                if indexer not in ("all", release.indexer_id):
+                                    continue
+                                scope = rule.get("scope", "all")
+                                if scope == "episodes" and not is_episode_search:
+                                    continue
+                                if scope == "seasons" and not is_season_search:
+                                    continue
+                                match = str(rule.get("match", ""))
+                                if not match or match.casefold() not in release.title.casefold():
+                                    continue
+                                action = rule.get("action")
+                                if action == "exclude":
+                                    excluded = True
+                                    break
+                                if action == "prefer":
+                                    matched_preferences = True
+                                elif action == "rewrite":
+                                    normalized_title = re.sub(
+                                        re.escape(match),
+                                        lambda _match: str(rule.get("value", "")),
+                                        normalized_title,
+                                        count=1,
+                                        flags=re.IGNORECASE,
+                                    )
+                                elif action == "annotate":
+                                    annotation = str(rule.get("value", "")).strip()
+                                    if annotation:
+                                        normalized_title = f"{normalized_title.rstrip()} [{annotation}]"
+                            if excluded:
                                 continue
-                            scope = rule.get("scope", "all")
-                            if scope == "episodes" and not is_episode_search:
-                                continue
-                            if scope == "seasons" and not is_season_search:
-                                continue
-                            match = str(rule.get("match", ""))
-                            if not match or match.casefold() not in release.title.casefold():
-                                continue
-                            action = rule.get("action")
-                            if action == "exclude":
-                                excluded = True
-                                break
-                            if action == "prefer":
-                                matched_preferences = True
-                            elif action == "rewrite":
-                                normalized_title = re.sub(
-                                    re.escape(match),
-                                    lambda _match: str(rule.get("value", "")),
-                                    normalized_title,
-                                    count=1,
-                                    flags=re.IGNORECASE,
-                                )
-                            elif action == "annotate":
-                                annotation = str(rule.get("value", "")).strip()
-                                if annotation:
-                                    normalized_title = f"{normalized_title.rstrip()} [{annotation}]"
-                        if excluded:
-                            continue
-                        results.setdefault(
-                            release.guid,
-                            replace(release, normalized_title=normalized_title),
-                        )
-                        if matched_preferences:
-                            preferred_releases.add(release.guid)
-                except Exception as error:
-                    print(f"fetch failed for query={variant!r}: {error}")
+                            results.setdefault(
+                                release.guid,
+                                replace(release, normalized_title=normalized_title),
+                            )
+                            if matched_preferences:
+                                preferred_releases.add(release.guid)
+                    except Exception as error:
+                        print(f"fetch failed for indexer={source['id']!r} query={variant!r}: {error}")
         return sorted(
             results.values(),
             key=lambda release: (release.guid in preferred_releases, release.seeders),

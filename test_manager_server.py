@@ -77,9 +77,9 @@ class ManagerAuthTests(unittest.TestCase):
 
         rules = [{
             "id": "one", "name": "Prefer Judas", "match": "Judas", "action": "prefer",
-            "scope": "all", "value": "", "enabled": True, "locked": False,
+            "scope": "all", "indexer": "all", "value": "", "enabled": True, "locked": False,
         }]
-        config = {"schemaVersion": 3, "defaults": defaults, "customRules": rules}
+        config = {"schemaVersion": 4, "defaults": defaults, "customRules": rules}
         config["defaults"]["dual-audio"]["locked"] = True
         status, _, _ = self.request("PUT", "/manager/api/rules", config, cookie=cookie)
         self.assertEqual(status, 200)
@@ -88,7 +88,7 @@ class ManagerAuthTests(unittest.TestCase):
         saved = json.loads(body)
         self.assertEqual(saved["customRules"], rules)
         self.assertTrue(saved["defaults"]["dual-audio"]["locked"])
-        self.assertEqual(json.loads(manager_server.RULES_PATH.read_text())["schemaVersion"], 3)
+        self.assertEqual(json.loads(manager_server.RULES_PATH.read_text())["schemaVersion"], 4)
 
         locked_config = json.loads(body)
         locked_config["defaults"]["dual-audio"]["name"] = "Changed while locked"
@@ -120,8 +120,9 @@ class ManagerAuthTests(unittest.TestCase):
         migrated = manager_server.normalize_rules_config([
             {"id": "legacy", "name": "Keep Judas", "match": "Judas", "action": "keep", "enabled": True}
         ])
-        self.assertEqual(migrated["schemaVersion"], 3)
+        self.assertEqual(migrated["schemaVersion"], 4)
         self.assertEqual(migrated["customRules"][0]["action"], "prefer")
+        self.assertEqual(migrated["customRules"][0]["indexer"], "all")
         self.assertTrue(all(rule["locked"] for rule in migrated["defaults"].values()))
 
     def test_upgrade_protects_defaults_and_preserves_saved_behavior(self) -> None:
@@ -142,14 +143,49 @@ class ManagerAuthTests(unittest.TestCase):
                 self.assertFalse(migrated["defaults"]["year-hygiene"]["enabled"])
                 self.assertEqual(migrated["defaults"]["year-hygiene"]["name"], "My year rule")
                 self.assertEqual(migrated["defaults"]["year-hygiene"]["description"], "Custom description")
-                self.assertEqual(migrated["customRules"], previous["customRules"])
+                self.assertEqual(migrated["customRules"], [{**previous["customRules"][0], "indexer": "all"}])
                 migrated["defaults"]["year-hygiene"]["locked"] = False
                 manager_server.write_rules_config(migrated)
                 self.assertEqual(manager_server.read_rules_config(), migrated)
 
     def test_stale_manager_cannot_save_old_schema(self) -> None:
         with self.assertRaisesRegex(ValueError, "Reload the manager"):
-            manager_server.normalize_rules_config({"schemaVersion": 2}, strict=True)
+            manager_server.normalize_rules_config({"schemaVersion": 3}, strict=True)
+
+    def test_v3_upgrade_preserves_deliberately_unlocked_builtin_rules(self) -> None:
+        previous = {"schemaVersion": 3, "defaults": manager_server.default_rule_settings(), "customRules": []}
+        previous["defaults"]["dual-audio"]["locked"] = False
+        migrated = manager_server.normalize_rules_config(previous)
+        self.assertFalse(migrated["defaults"]["dual-audio"]["locked"])
+
+    def test_indexer_list_is_authenticated_and_never_exposes_api_keys(self) -> None:
+        status, _, _ = self.request("GET", "/manager/api/indexers")
+        self.assertEqual(status, 401)
+        cookie_status, headers, _ = self.request(
+            "POST", "/manager/api/login", {"username": "test-user", "password": "test-password"}
+        )
+        self.assertEqual(cookie_status, 204)
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        sources = [{
+            "id": "private-indexer", "name": "Private Indexer", "type": "torznab",
+            "url": "http://indexer:9696/api", "api_key": "do-not-leak", "categories": [],
+        }]
+        with patch.object(proxy, "configured_indexers", return_value=sources):
+            status, _, body = self.request("GET", "/manager/api/indexers", cookie=cookie)
+        self.assertEqual(status, 200)
+        self.assertEqual(json.loads(body), [{"id": "private-indexer", "name": "Private Indexer"}])
+        self.assertNotIn(b"do-not-leak", body)
+
+    def test_rules_reject_malformed_indexer_ids(self) -> None:
+        defaults = manager_server.default_rule_settings()
+        rule = {
+            "id": "bad-indexer", "name": "Bad", "match": "Group", "action": "exclude",
+            "scope": "all", "indexer": "../private", "value": "", "enabled": True, "locked": False,
+        }
+        with self.assertRaisesRegex(ValueError, "indexer"):
+            manager_server.normalize_rules_config(
+                {"schemaVersion": 4, "defaults": defaults, "customRules": [rule]}, strict=True
+            )
 
 
 if __name__ == "__main__":
