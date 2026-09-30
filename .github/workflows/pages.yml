@@ -5,8 +5,8 @@ on:
     branches: [main]
     paths:
       - "README.md"
-      - "index.md"
-      - "_config.yml"
+      - "LICENSE"
+      - "docs/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -25,9 +25,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: actions/configure-pages@v5
+      - name: Prepare isolated documentation source
+        run: |
+          cp README.md docs/README.md
+          cp LICENSE docs/LICENSE
       - uses: actions/jekyll-build-pages@v1
         with:
-          source: ./
+          source: ./docs
           destination: ./_site
       - uses: actions/upload-pages-artifact@v4
         with:
