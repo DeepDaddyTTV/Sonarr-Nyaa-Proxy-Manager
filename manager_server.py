@@ -10,18 +10,24 @@ import os
 import re
 import secrets
 import time
+import copy
+import threading
 from http.cookies import CookieError, SimpleCookie
 from http import HTTPStatus
 from pathlib import Path
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 
 import nyaa_season_proxy as proxy
 from nyaa_proxy_runtime_patch import install
+from proxy_integrations import IntegrationStore, atomic_json
 
 
 ROOT = Path(__file__).resolve().parent
 SCHEMA_VERSION = 4
 RULES_PATH = Path(os.environ.get("RULES_PATH", "/data/custom-rules.json"))
+INTEGRATIONS = None
+LEGACY_SOURCES = proxy.configured_indexers
+RULES_LOCK = threading.RLock()
 AUTH_USERNAME = os.environ.get("AUTH_USERNAME")
 AUTH_PASSWORD = os.environ.get("AUTH_PASSWORD")
 if (AUTH_USERNAME is None) != (AUTH_PASSWORD is None) or (
@@ -209,10 +215,49 @@ def read_rules_config() -> dict:
 
 
 def write_rules_config(config: dict) -> None:
-    RULES_PATH.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path = RULES_PATH.with_name(f"{RULES_PATH.name}.{secrets.token_hex(8)}.tmp")
-    temporary_path.write_text(json.dumps(config, indent=2) + "\n", encoding="utf-8")
-    temporary_path.replace(RULES_PATH)
+    atomic_json(RULES_PATH, config)
+
+
+def feed_rule_path(feed_id: str) -> Path:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", feed_id):
+        raise ValueError("Invalid feed id")
+    return RULES_PATH.parent / "feed-rules" / f"{feed_id}.json"
+
+
+def read_feed_rules(feed_id: str) -> dict:
+    feed = next((value for value in INTEGRATIONS.feeds() if value["id"] == feed_id), None)
+    if feed is None:
+        raise ValueError("Feed not found")
+    try:
+        return normalize_rules_config(json.loads(feed_rule_path(feed_id).read_text(encoding="utf-8")))
+    except FileNotFoundError:
+        if feed["mode"] == "anime":
+            config = copy.deepcopy(RULES_CONFIG)
+        else:
+            config = normalize_rules_config({})
+            for rule_id in ("year-hygiene", "season-classification", "query-expansion", "dual-audio"):
+                config["defaults"][rule_id]["enabled"] = False
+        for settings in config["defaults"].values():
+            settings["locked"] = True
+        return config
+
+
+def apply_connection_settings() -> None:
+    connections = INTEGRATIONS.effective()["connections"]
+    proxy.SONARR_URL = connections["sonarr"]["url"]
+    proxy.SONARR_API_KEY = connections["sonarr"]["apiKey"]
+    proxy._SONARR_SERIES_CACHE.clear()
+    proxy._CACHE.clear()
+
+
+def read_request_json(handler: object, maximum: int = 1_000_000) -> object:
+    origin = handler.headers.get("Origin")
+    if origin and urlparse(origin).netloc != handler.headers.get("Host"):
+        raise ValueError("Cross-origin changes are not allowed")
+    length = int(handler.headers.get("Content-Length", "0"))
+    if length < 1 or length > maximum:
+        raise ValueError("Invalid request body size")
+    return json.loads(handler.rfile.read(length).decode("utf-8"))
 
 
 def validate_lock_transitions(current: dict, updated: dict) -> None:
@@ -322,7 +367,27 @@ def require_manager_auth(handler: object) -> bool:
 
 
 def install_manager_routes() -> None:
-    install(proxy, lambda: RULES_CONFIG)
+    global INTEGRATIONS
+    if INTEGRATIONS is None:
+        INTEGRATIONS = IntegrationStore(Path(os.environ.get("INTEGRATIONS_PATH", str(RULES_PATH.parent / "integrations.json"))), LEGACY_SOURCES,
+                                        {"sonarr": {"url": proxy.SONARR_URL, "apiKey": proxy.SONARR_API_KEY},
+                                         "proxy": {"apiKey": proxy.PROXY_API_KEY}})
+    proxy.configured_indexers = INTEGRATIONS.sources
+    apply_connection_settings()
+    connections = INTEGRATIONS.effective()["connections"]
+    if os.environ.get("PROWLARR_DISCOVER_ON_START", "true" if os.environ.get("PROXY_FEEDS_JSON") else "false").lower() in {"true", "1", "yes"}:
+        if connections["prowlarr"]["url"] and connections["prowlarr"]["apiKey"]:
+            try:
+                INTEGRATIONS.discover()
+            except (ValueError, OSError):
+                print("Prowlarr startup discovery failed; retry discovery in the manager.")
+    for feed in INTEGRATIONS.feeds():
+        target = feed_rule_path(feed["id"])
+        if not target.exists():
+            atomic_json(target, read_feed_rules(feed["id"]))
+    install(proxy, lambda: RULES_CONFIG, feeds_provider=INTEGRATIONS.feeds,
+            feed_rules_provider=read_feed_rules, legacy_sources_provider=LEGACY_SOURCES,
+            feed_key_provider=lambda: INTEGRATIONS.effective()["connections"]["proxy"]["apiKey"])
     proxy_get = proxy.Handler.do_GET
 
     def do_get(self: object) -> None:
@@ -368,38 +433,81 @@ def install_manager_routes() -> None:
         if path == "/manager/api/rules":
             if not require_manager_auth(self):
                 return
-            write_json(self, HTTPStatus.OK, RULES_CONFIG)
+            try:
+                feed_id = parse_qs(urlparse(self.path).query).get("feed", [""])[0]
+                config = read_feed_rules(feed_id) if feed_id else RULES_CONFIG
+                write_json(self, HTTPStatus.OK, config)
+            except (OSError, ValueError) as error:
+                write_json(self, HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
         if path == "/manager/api/indexers":
             if not require_manager_auth(self):
                 return
             write_json(self, HTTPStatus.OK, proxy.public_indexers())
             return
+        if path in {"/manager/api/settings", "/manager/api/feeds", "/manager/api/sources"}:
+            if not require_manager_auth(self):
+                return
+            getter = {"/manager/api/settings": INTEGRATIONS.public_settings,
+                      "/manager/api/feeds": INTEGRATIONS.public_feeds,
+                      "/manager/api/sources": INTEGRATIONS.public_sources}[path]
+            write_json(self, HTTPStatus.OK, getter())
+            return
         proxy_get(self)
 
     def do_put(self: object) -> None:
         global RULES_CONFIG
-        if urlparse(self.path).path != "/manager/api/rules":
+        path = urlparse(self.path).path
+        if path not in {"/manager/api/rules", "/manager/api/settings", "/manager/api/feeds"}:
             self.send_error(HTTPStatus.NOT_FOUND)
             return
         if not require_manager_auth(self):
             return
         try:
-            length = int(self.headers.get("Content-Length", "0"))
-            if length < 0 or length > 1_000_000:
-                raise ValueError("Request body is too large")
-            payload = json.loads(self.rfile.read(length).decode("utf-8"))
-            config = normalize_rules_config(payload, strict=True)
-            validate_lock_transitions(RULES_CONFIG, config)
-            write_rules_config(config)
-            RULES_CONFIG = config
-        except (OSError, ValueError, json.JSONDecodeError) as error:
+            payload = read_request_json(self)
+            if path == "/manager/api/settings":
+                config = INTEGRATIONS.save_settings(payload)
+                apply_connection_settings()
+            elif path == "/manager/api/feeds":
+                config = INTEGRATIONS.save_feeds(payload)
+                for feed in INTEGRATIONS.feeds():
+                    target = feed_rule_path(feed["id"])
+                    if not target.exists():
+                        atomic_json(target, read_feed_rules(feed["id"]))
+            else:
+                with RULES_LOCK:
+                    feed_id = parse_qs(urlparse(self.path).query).get("feed", [""])[0]
+                    config = normalize_rules_config(payload, strict=True)
+                    validate_lock_transitions(read_feed_rules(feed_id) if feed_id else RULES_CONFIG, config)
+                    if feed_id:
+                        atomic_json(feed_rule_path(feed_id), config)
+                    else:
+                        write_rules_config(config)
+                        RULES_CONFIG = config
+        except (OSError, ValueError, UnicodeDecodeError) as error:
             write_json(self, HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return
         write_json(self, HTTPStatus.OK, config)
 
     def do_post(self: object) -> None:
         path = urlparse(self.path).path
+        if path in {"/manager/api/discover", "/manager/api/test-connection", "/manager/api/sync-sonarr"}:
+            if not require_manager_auth(self):
+                return
+            try:
+                payload = read_request_json(self, 4096)
+                if not isinstance(payload, dict):
+                    raise ValueError("Request must be an object")
+                if path == "/manager/api/discover":
+                    result = INTEGRATIONS.discover()
+                elif path == "/manager/api/sync-sonarr":
+                    result = INTEGRATIONS.sync_sonarr()
+                else:
+                    result = INTEGRATIONS.test_connection(payload.get("service", ""))
+                write_json(self, HTTPStatus.OK, result)
+            except (OSError, ValueError, UnicodeDecodeError) as error:
+                write_json(self, HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
         if path == "/manager/api/login":
             if not AUTH_ENABLED:
                 write_json(self, HTTPStatus.SERVICE_UNAVAILABLE, {"error": "Set AUTH_USERNAME and AUTH_PASSWORD to enable the manager."})

@@ -1,2 +1,11 @@
 .DS_Store
 *.log
+.env
+.env.local
+__pycache__/
+.playwright-cli/
+.playwright/
+integrations.json
+custom-rules.json
+sonarr_proxy_config.json
+feed-rules/

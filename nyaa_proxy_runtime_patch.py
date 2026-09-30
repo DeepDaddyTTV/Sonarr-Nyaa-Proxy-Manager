@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from contextvars import ContextVar
+import hmac
 import re
 import urllib.parse
 import xml.etree.ElementTree as ET
@@ -63,6 +65,9 @@ def parse_release_title(
 ) -> ParsedRelease:
     """Classify a title without treating years, resolution, or bit depth as episodes."""
     cleaned = strip_year_tokens(title) if strip_year else title
+    date = re.search(r"(?<!\d)((?:19|20)\d{2})[._-](\d{2})[._-](\d{2})(?!\d)", cleaned)
+    if date:
+        return ParsedRelease(int(date.group(1)), None, None, "episode", cleaned_title=cleaned)
     marker = SEASON_TOKEN.search(cleaned)
     season: Optional[int] = None
     episode_start: Optional[int] = None
@@ -249,7 +254,9 @@ def search_variants(
     return values[:12]
 
 
-def install(module: object, rules_provider: Optional[Callable[[], dict]] = None) -> None:
+def install(module: object, rules_provider: Optional[Callable[[], dict]] = None, *,
+            feeds_provider=None, feed_rules_provider=None, legacy_sources_provider=None,
+            feed_key_provider=None) -> None:
     """Install request-aware behavior over the original proxy module."""
     from dataclasses import replace
 
@@ -264,8 +271,13 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
     original_fetch_sonarr_series = getattr(module, "fetch_sonarr_series", lambda: [])
     original_magnet_url = module.Release.magnet_url
     original_preferred_download_url = module.Release.preferred_download_url
+    active_feed = ContextVar("proxy_active_feed", default=None)
+    request_parameters = ContextVar("proxy_request_parameters", default=None)
 
     def current_rules() -> dict:
+        feed = active_feed.get()
+        if feed is not None and feed_rules_provider is not None:
+            return feed_rules_provider(feed["id"])
         try:
             return rules_provider() if rules_provider else {}
         except Exception:
@@ -298,7 +310,16 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
         is_season_search = requested_season is not None and requested_episode is None
         results: Dict[str, object] = {}
         preferred_releases: set[str] = set()
-        sources = indexers_provider()
+        feed = active_feed.get()
+        sources = indexers_provider() if feed else (legacy_sources_provider or indexers_provider)()
+        if feed:
+            sources = [source for source in sources if source["id"] in feed["sourceIds"]]
+        params = request_parameters.get()
+        absolute_search = bool(params and params.get("_absolute"))
+        daily_date = params.get("_date") if params else None
+        if daily_date:
+            is_episode_search, is_season_search = True, False
+            requested_season = None
         for query in queries:
             variants = (
                 search_variants(query, requested_season, requested_episode, series_year)
@@ -307,32 +328,42 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
             )
             for variant_index, variant in enumerate(variants):
                 for source in sources:
-                    # Keep federated TV API traffic bounded while Nyaa retains the full expansion set.
-                    if source["id"] != "nyaa" and variant_index >= 3:
+                    if params and "5070" not in params.get("cat", []) and source.get("type") == "nyaa":
+                        continue
+                    # Anime aliases need the full expansion set, including through Prowlarr.
+                    anime_request = bool(feed and params and "5070" in params.get("cat", []))
+                    if source["id"] != "nyaa" and not anime_request and variant_index >= 3:
                         continue
                     try:
-                        if source["id"] == "nyaa":
+                        if source.get("type", "nyaa" if source["id"] == "nyaa" else "torznab") == "nyaa":
                             source_releases = original_fetch_nyaa(variant)
                         else:
-                            source_releases = original_fetch_torznab(
-                                variant,
-                                source["id"],
-                                season,
-                                episode,
-                            )
+                            args = (variant, source["id"], season, episode)
+                            source_releases = original_fetch_torznab(*args, params=params) if params is not None else original_fetch_torznab(*args)
                         for release in source_releases:
                             if getattr(release, "indexer_id", source["id"]) != source["id"]:
                                 release = replace(release, indexer_id=source["id"], indexer_name=source["name"])
                             if not matches_series(release, query):
                                 continue
+                            if feed:
+                                categories = set(str(value) for value in getattr(release, "categories", ()) or (getattr(release, "category_id", ""),))
+                                allowed = set(params.get("cat", [])) if params else set()
+                                if allowed == {"5070"} and categories.intersection(str(value) for value in range(5001, 6000)) and "5070" not in categories:
+                                    continue
+                                if "5070" not in allowed and "5070" in categories:
+                                    continue
                             parsed = parse_release_title(
                                 release.title,
-                                requested_season,
+                                1 if absolute_search else requested_season,
                                 strip_year=default_enabled("year-hygiene"),
                             )
-                            if is_episode_search and default_enabled("episode-isolation"):
-                                if parsed.kind != "episode" or parsed.episode_start != requested_episode or parsed.season != requested_season:
+                            if daily_date and default_enabled("episode-isolation"):
+                                if not re.search(r"(?<!\d)" + re.escape(daily_date).replace(r"\-", "[._-]") + r"(?!\d)", release.title):
                                     continue
+                            elif is_episode_search and default_enabled("episode-isolation"):
+                                if parsed.kind != "episode" or parsed.episode_start != requested_episode or parsed.season != requested_season:
+                                    if not (absolute_search and parsed.kind == "episode" and parsed.marker_start is None and parsed.episode_start == requested_episode):
+                                        continue
                             elif is_season_search and default_enabled("season-isolation"):
                                 if parsed.kind in ("episode", "range"):
                                     continue
@@ -344,7 +375,7 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
                             normalized_title = rewrite_title(
                                 release.title,
                                 parsed,
-                                normalize=default_enabled("season-classification"),
+                                normalize=default_enabled("season-classification") and not absolute_search and not daily_date,
                                 dual_audio=default_enabled("dual-audio"),
                             )
                             excluded = False
@@ -390,7 +421,7 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
                             if matched_preferences:
                                 preferred_releases.add(release.guid)
                     except Exception as error:
-                        print(f"fetch failed for indexer={source['id']!r} query={variant!r}: {error}")
+                        print(f"fetch failed for indexer={source['id']!r}: {type(error).__name__}")
         return sorted(
             results.values(),
             key=lambda release: (release.guid in preferred_releases, release.seeders),
@@ -413,24 +444,64 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
     )
     module.feed_xml = patched_feed_xml
 
-    def do_get(self: object) -> None:
-        parsed_url = urllib.parse.urlparse(self.path)
-        params = urllib.parse.parse_qs(parsed_url.query)
-        if parsed_url.path in {"/", "/health"}:
-            self.write_text("ok\n")
-            return
-        if parsed_url.path != "/api":
-            self.send_error(404)
-            return
-        if not self.authorized(params):
-            self.send_error(401)
-            return
+    def handle_search(self: object, parsed_url, params) -> None:
         action = original_first(params, "t", "search").lower()
-        if action == "caps":
-            self.write_xml(module.caps_xml())
+        if action not in {"caps", "search", "tvsearch"}:
+            self.send_error(400, "Unsupported Torznab action")
             return
+        feed = active_feed.get()
+        if action == "caps":
+            payload = module.caps_xml()
+            if feed:
+                root = ET.fromstring(payload)
+                root.find("server").set("title", feed["name"])
+                allowed = set(str(value) for value in feed["tvCategories"] if feed["mode"] != "anime")
+                if feed["mode"] != "tv":
+                    allowed.add("5070")
+                for parent in root.findall("./categories/category"):
+                    for child in list(parent):
+                        if child.get("id") not in allowed:
+                            parent.remove(child)
+                payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+            self.write_xml(payload)
+            return
+        if feed and not feed["enabled"]:
+            self.send_error(503, "Feed is disabled")
+            return
+        upstream = {key: list(value) for key, value in params.items() if key in {"t", "cat", "tvdbid", "imdbid", "offset", "limit", "q", "season", "ep"}}
+        if feed:
+            raw_categories = original_first(params, "cat", "")
+            if raw_categories and not re.fullmatch(r"\d+(?:,\d+)*", raw_categories):
+                self.send_error(400, "Invalid categories")
+                return
+            requested = set(raw_categories.split(",")) if raw_categories else set()
+            allowed = set(str(value) for value in feed["tvCategories"] if feed["mode"] != "anime")
+            if feed["mode"] != "tv":
+                allowed.add("5070")
+            selected = allowed if not requested or "5000" in requested else allowed.intersection(requested)
+            if not selected:
+                self.write_xml(module.feed_xml([], self.absolute_url()))
+                return
+            upstream["cat"] = sorted(selected)
         season = original_first(params, "season", "")
         episode = original_first(params, "ep", "")
+        query = original_first(params, "q", "")
+        if feed and feed["mode"] != "tv" and action == "search" and not season and not episode:
+            absolute = re.search(r"\s+(\d{1,4})(?:v\d+)?$", query)
+            if absolute and int(absolute.group(1)) < 1900:
+                episode = absolute.group(1)
+                query = query[:absolute.start()].strip()
+                params = {**params, "q": [query]}
+                upstream["_absolute"] = True
+        if feed and re.fullmatch(r"\d{4}", season) and re.fullmatch(r"\d{2}/\d{2}", episode):
+            upstream["_date"] = f"{season}-{episode.replace('/', '-')}"
+        parameter_token = request_parameters.set(upstream if feed else None)
+        try:
+            perform_search(self, params, season, episode, feed)
+        finally:
+            request_parameters.reset(parameter_token)
+
+    def perform_search(self: object, params, season, episode, feed) -> None:
         series_year: Optional[int] = None
         tvdb_id = original_first(params, "tvdbid", "").strip()
         if tvdb_id:
@@ -439,21 +510,48 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
                     if str(series.get("tvdbId") or "").strip() == tvdb_id:
                         series_year = int(series.get("year") or 0) or None
                         break
-            except Exception as error:
-                print(f"sonarr year lookup failed: {error}")
-        print(
-            "search t=%s q=%r tvdbid=%r imdbid=%r season=%r ep=%r"
-            % (
-                action,
-                original_first(params, "q"),
-                original_first(params, "tvdbid"),
-                original_first(params, "imdbid"),
-                season,
-                episode,
-            )
-        )
-        releases = collect(original_query_bases(params, season), season, episode, series_year)
-        self.write_xml(module.feed_xml(releases, self.absolute_url()))
+            except Exception:
+                print("sonarr year lookup failed")
+        queries = original_query_bases(params, season)
+        releases = collect(queries, season, episode, series_year)
+        payload = module.feed_xml(releases, self.absolute_url())
+        if feed:
+            root = ET.fromstring(payload)
+            root.find("./channel/title").text = feed["name"]
+            payload = ET.tostring(root, encoding="utf-8", xml_declaration=True)
+        self.write_xml(payload)
+
+    def do_get(self: object) -> None:
+        parsed_url = urllib.parse.urlparse(self.path)
+        params = urllib.parse.parse_qs(parsed_url.query)
+        if parsed_url.path in {"/", "/health"}:
+            self.write_text("ok\n")
+            return
+        match = re.fullmatch(r"/feeds/([A-Za-z0-9_-]{1,64})/api", parsed_url.path)
+        feed = None
+        if match and feeds_provider:
+            feed = next((value for value in feeds_provider() if value["id"] == match.group(1)), None)
+            if feed is None:
+                self.send_error(404, "Feed not found")
+                return
+            key = feed_key_provider() if feed_key_provider else getattr(module, "PROXY_API_KEY", "")
+            supplied_key = original_first(params, "apikey", "") or self.headers.get("X-Api-Key", "")
+            if not key or not hmac.compare_digest(supplied_key.encode(), key.encode()):
+                self.send_error(401)
+                return
+        elif parsed_url.path != "/api":
+            self.send_error(404)
+            return
+        elif not self.authorized(params):
+            self.send_error(401)
+            return
+        token = active_feed.set(feed)
+        try:
+            handle_search(self, parsed_url, params)
+        except (ValueError, OSError):
+            self.send_error(503, "Feed configuration is unavailable")
+        finally:
+            active_feed.reset(token)
 
     module._proxy_parse_release_title = parse_release_title
     module._proxy_rewrite_title = rewrite_title
@@ -461,6 +559,8 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None)
     module._proxy_add_torznab_language_attributes = add_torznab_language_attributes
     module._proxy_search_variants = search_variants
     module._proxy_collect = collect
+    module._proxy_feed_context = active_feed
+    module._proxy_request_context = request_parameters
     module.Handler.do_GET = do_get
 
 

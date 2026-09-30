@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import copy
 import tempfile
 import threading
 import unittest
@@ -186,6 +187,35 @@ class ManagerAuthTests(unittest.TestCase):
             manager_server.normalize_rules_config(
                 {"schemaVersion": 4, "defaults": defaults, "customRules": [rule]}, strict=True
             )
+
+    def test_settings_and_profiles_require_auth_and_do_not_leak_keys(self) -> None:
+        for endpoint in ("settings", "feeds", "sources"):
+            self.assertEqual(self.request("GET", f"/manager/api/{endpoint}")[0], 401)
+        _, headers, _ = self.request("POST", "/manager/api/login", {"username": "test-user", "password": "test-password"})
+        cookie = headers["Set-Cookie"].split(";", 1)[0]
+        store = manager_server.INTEGRATIONS
+        with patch.object(store, "data", copy.deepcopy(store.data)):
+            status, _, body = self.request("PUT", "/manager/api/settings", {
+                "connections": {"prowlarr": {"url": "http://prowlarr:9696", "apiKey": "secret-private-key"}}
+            }, cookie=cookie)
+            self.assertEqual(status, 200)
+            self.assertNotIn(b"secret-private-key", body)
+            status, _, body = self.request("GET", "/manager/api/settings", cookie=cookie)
+            self.assertTrue(json.loads(body)["connections"]["prowlarr"]["hasApiKey"])
+            self.assertNotIn(b"secret-private-key", body)
+            status, _, body = self.request("PUT", "/manager/api/feeds", [
+                {"id": "test-tv", "name": "Sonarr Proxy TV", "sourceIds": ["nyaa"], "mode": "tv"}
+            ], cookie=cookie)
+            self.assertEqual(status, 200)
+            status, _, body = self.request("GET", "/manager/api/rules?feed=test-tv", cookie=cookie)
+            self.assertEqual(status, 200)
+            config = json.loads(body)
+            self.assertFalse(config["defaults"]["dual-audio"]["enabled"])
+            self.assertTrue(all(rule["locked"] for rule in config["defaults"].values()))
+            config["customRules"] = [{"id": "only-tv", "name": "TV rule", "match": "TV", "scope": "all", "action": "exclude", "indexer": "all"}]
+            self.assertEqual(self.request("PUT", "/manager/api/rules?feed=test-tv", config, cookie=cookie)[0], 200)
+            self.assertFalse(any(rule["id"] == "only-tv" for rule in manager_server.RULES_CONFIG["customRules"]))
+            self.assertEqual(self.request("GET", "/manager/api/rules?feed=unknown", cookie=cookie)[0], 400)
 
 
 if __name__ == "__main__":

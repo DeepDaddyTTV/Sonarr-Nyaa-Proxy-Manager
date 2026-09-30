@@ -14,6 +14,13 @@ const ruleCatalog = [
 const byId = id => document.getElementById(id);
 const siteSelectRoots = [];
 let indexerCatalog = [{ id: "nyaa", name: "Nyaa" }];
+let feeds = [];
+let sources = [];
+let settings = null;
+let currentPage = "rules";
+let integrationBusy = false;
+let editingFeedId = null;
+function rulesEndpoint() { return `/manager/api/rules${byId("ruleProfile").value ? `?feed=${encodeURIComponent(byId("ruleProfile").value)}` : ""}`; }
 const els = Object.fromEntries([
   "defaultRules", "customRules", "defaultSection", "customSection", "emptyState", "noResults",
   "ruleDialog", "ruleForm", "ruleName", "ruleDescription", "descriptionField", "customFields",
@@ -31,6 +38,7 @@ function syncSiteSelect(root) {
   const trigger = root.querySelector(".site-select-trigger");
   const selected = root.querySelector(`[data-value="${CSS.escape(select.value)}"]`);
   if (!trigger) return;
+  trigger.disabled = select.disabled;
   trigger.querySelector(".site-select-value").textContent = selected?.textContent || select.value;
   trigger.setAttribute("aria-label", `${root.dataset.selectLabel}, ${selected?.textContent || select.value}`);
   root.querySelectorAll(".site-option").forEach(option => option.setAttribute("aria-selected", String(option === selected)));
@@ -81,6 +89,7 @@ function closeSiteMenu(root, restoreFocus = false) {
   if (restoreFocus) trigger.focus();
 }
 function openSiteMenu(root, offset = 0, edge = null) {
+  if (root.querySelector("select").disabled) return;
   const menu = root.querySelector(".site-select-menu");
   const options = [...menu.querySelectorAll(".site-option")];
   const selectedIndex = options.findIndex(option => option.getAttribute("aria-selected") === "true");
@@ -189,7 +198,9 @@ function indexerName(id) {
 function setIndexerOptions(selectedId = "all") {
   const select = els.ruleIndexer;
   if (!select) return;
-  const options = [{ id: "all", name: "All indexers" }, ...indexerCatalog];
+  const feed = feeds.find(value => value.id === byId("ruleProfile").value);
+  const available = feed ? indexerCatalog.filter(indexer => feed.sourceIds.includes(indexer.id)) : indexerCatalog.filter(indexer => !sources.length || sources.some(source => source.id === indexer.id && source.origin !== "Prowlarr"));
+  const options = [{ id: "all", name: "All indexers in this profile" }, ...available];
   if (selectedId !== "all" && !options.some(indexer => indexer.id === selectedId)) {
     options.push({ id: selectedId, name: `Unavailable (${selectedId})` });
   }
@@ -226,6 +237,9 @@ function setStatus(message, state = "") {
 function showError(message) { els.feedback.textContent = message; els.feedback.hidden = !message; }
 
 async function hydrateRules() {
+  canSave = false;
+  setStatus("Loading rules");
+  render();
   try {
     const indexersResponse = await fetch("/manager/api/indexers");
     if (indexersResponse.status === 401 || indexersResponse.status === 503) { window.location.assign("/manager/login"); return; }
@@ -236,7 +250,7 @@ async function hydrateRules() {
     }
     indexerCatalog = configuredIndexers;
     setIndexerOptions(els.ruleIndexer.value || "all");
-    const response = await fetch("/manager/api/rules");
+    const response = await fetch(rulesEndpoint());
     if (response.status === 401 || response.status === 503) { window.location.assign("/manager/login"); return; }
     if (!response.ok) throw new Error("Could not load rules. Reload the page to try again.");
     config = normalizeConfig(await response.json());
@@ -261,7 +275,7 @@ async function saveChanges(change) {
   showError("");
   render();
   try {
-    const response = await fetch("/manager/api/rules", {
+    const response = await fetch(rulesEndpoint(), {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(candidate),
     });
     if (response.status === 401 || response.status === 503) { window.location.assign("/manager/login"); return false; }
@@ -338,7 +352,7 @@ function render() {
   byId("resultCount").textContent = `${visibleCount} of ${totalCount} ${totalCount === 1 ? "rule" : "rules"}`;
   byId("pageTitle").textContent = ({ all: "Rule library", default: "Built-in rules", custom: "Custom rules" })[currentView];
   document.querySelectorAll("[data-view]").forEach(button => {
-    const selected = button.dataset.view === currentView;
+    const selected = currentPage === "rules" && button.dataset.view === currentView;
     button.classList.toggle("is-selected", selected);
     button.setAttribute("aria-pressed", String(selected));
   });
@@ -349,6 +363,8 @@ function render() {
   els.customFields.disabled = isSaving || editingRule?.kind === "default";
   updateValueRequirement();
   byId("saveRuleButton").textContent = isSaving ? "Saving..." : "Save rule";
+  byId("ruleProfile").disabled = isSaving || !canSave;
+  syncSiteSelect(byId("ruleProfile").closest(".site-select"));
 }
 
 function setTheme(theme) {
@@ -433,7 +449,7 @@ for (const container of [els.defaultRules, els.customRules]) {
   container.addEventListener("click", handleRuleClick);
   container.addEventListener("change", handleRuleChange);
 }
-document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => { currentView = button.dataset.view; render(); }));
+document.querySelectorAll("[data-view]").forEach(button => button.addEventListener("click", () => { currentView = button.dataset.view; showPage("rules"); render(); }));
 els.ruleSearch.addEventListener("input", render);
 els.stateFilter.addEventListener("change", render);
 byId("clearFilters").addEventListener("click", () => { els.ruleSearch.value = ""; els.stateFilter.value = "all"; render(); els.ruleSearch.focus(); });
@@ -490,3 +506,186 @@ setTheme(currentTheme);
 enhanceSiteSelects();
 render();
 hydrateRules();
+hydrateIntegrations();
+
+async function managerRequest(path, method = "GET", payload) {
+  const response = await fetch(`/manager/api/${path}`, {
+    method, headers: { "Content-Type": "application/json" },
+    ...(payload === undefined ? {} : { body: JSON.stringify(payload) }),
+  });
+  if (response.status === 401 || response.status === 503) {
+    window.location.assign("/manager/login");
+    throw new Error("Sign in to continue.");
+  }
+  const result = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(result.error || "The operation could not be completed.");
+  return result;
+}
+
+function integrationMessage(message, error = false) {
+  const feedback = byId("integrationFeedback");
+  feedback.textContent = message;
+  feedback.hidden = !message;
+  feedback.classList.toggle("is-error", error);
+}
+
+function showPage(page) {
+  currentPage = page;
+  byId("ruleWorkspace").hidden = page !== "rules";
+  byId("feedsWorkspace").hidden = page !== "feeds";
+  byId("settingsWorkspace").hidden = page !== "settings";
+  document.querySelectorAll("[data-page]").forEach(button => {
+    button.classList.toggle("is-selected", button.dataset.page === page);
+    button.setAttribute("aria-pressed", String(button.dataset.page === page));
+  });
+  render();
+}
+
+function renderIntegrations() {
+  if (settings) {
+    for (const service of ["prowlarr", "sonarr", "proxy"]) {
+      const connection = settings.connections[service];
+      byId(`${service}Url`).value = connection.url;
+      byId(`${service}Url`).disabled = connection.managed.url;
+      byId(`${service}Key`).value = "";
+      byId(`${service}Key`).disabled = connection.managed.apiKey;
+      byId(`${service}Key`).placeholder = connection.hasApiKey ? "Saved key (leave blank to keep)" : "Enter API key";
+      byId(`${service}Origin`).textContent = Object.values(connection.managed).some(Boolean) ? "Environment" : "Local settings";
+    }
+  }
+  const profile = byId("ruleProfile");
+  const selected = profile.value;
+  profile.replaceChildren(new Option("Legacy combined feed (/api)", ""), ...feeds.map(feed => new Option(feed.name, feed.id)));
+  profile.value = feeds.some(feed => feed.id === selected) ? selected : "";
+  refreshSiteSelect(profile.closest(".site-select"));
+  byId("navFeedCount").textContent = feeds.length;
+  byId("feedEmpty").hidden = feeds.length > 0;
+  byId("feedList").innerHTML = feeds.map(feed => `<article class="feed-card" data-feed-id="${escapeHtml(feed.id)}">
+    <div class="feed-card-heading"><h2>${escapeHtml(feed.name)}</h2><span class="behavior-tag">${({ anime: "Anime only", tv: "TV only", both: "Anime + TV" })[feed.mode]}</span></div>
+    <p>${feed.sourceIds.map(id => escapeHtml(indexerName(id))).join(" / ")}</p>
+    <p>${feed.enabled ? "Interactive and automatic searches enabled" : "Disabled; sync to disable in Sonarr"}</p>
+    <code>${escapeHtml(feed.url || "Set proxy base URL in Settings")}${escapeHtml(feed.apiPath)}</code>
+    ${feed.unavailableSources?.length ? `<p class="source-warning">Unavailable sources: ${feed.unavailableSources.map(escapeHtml).join(", ")}. Rediscover Prowlarr.</p>` : ""}
+    <div class="panel-actions"><button class="button button-secondary" type="button" data-feed-action="rules">Edit rules</button><button class="button button-secondary" type="button" data-feed-action="edit" ${settings?.feedsManaged ? "disabled" : ""}>Edit feed</button></div>
+  </article>`).join("");
+  byId("addFeed").disabled = settings?.feedsManaged || integrationBusy;
+  byId("syncSonarr").disabled = !feeds.length || integrationBusy;
+}
+
+async function hydrateIntegrations() {
+  try {
+    settings = await managerRequest("settings");
+    sources = await managerRequest("sources");
+    feeds = await managerRequest("feeds");
+    indexerCatalog = sources;
+    setIndexerOptions(els.ruleIndexer.value);
+    renderIntegrations();
+  } catch (error) { integrationMessage(error.message, true); }
+}
+
+async function runIntegration(button, operation) {
+  if (integrationBusy) return;
+  integrationBusy = true;
+  button.disabled = true;
+  integrationMessage("Working...");
+  try { await operation(); }
+  catch (error) {
+    integrationMessage(error.message, true);
+    if (byId("feedDialog").open) { byId("feedError").textContent = error.message; byId("feedError").hidden = false; }
+  } finally {
+    integrationBusy = false;
+    button.disabled = false;
+    byId("addFeed").disabled = settings?.feedsManaged;
+    byId("syncSonarr").disabled = !feeds.length;
+  }
+}
+
+document.querySelectorAll("[data-page]").forEach(button => button.addEventListener("click", () => showPage(button.dataset.page)));
+byId("ruleProfile").addEventListener("change", () => { if (!isSaving) hydrateRules(); });
+byId("settingsForm").addEventListener("submit", event => {
+  event.preventDefault();
+  if (!settings || !event.currentTarget.reportValidity()) return;
+  runIntegration(byId("saveSettings"), async () => {
+    const connections = {};
+    for (const service of ["prowlarr", "sonarr", "proxy"]) {
+      connections[service] = {};
+      if (!settings.connections[service].managed.url) connections[service].url = byId(`${service}Url`).value.trim();
+      if (!settings.connections[service].managed.apiKey && byId(`${service}Key`).value) connections[service].apiKey = byId(`${service}Key`).value;
+    }
+    settings = await managerRequest("settings", "PUT", { connections });
+    sources = await managerRequest("sources");
+    indexerCatalog = sources;
+    setIndexerOptions();
+    renderIntegrations();
+    integrationMessage("Connections saved. Saved API keys remain hidden.");
+  });
+});
+document.querySelectorAll("[data-test-service]").forEach(button => button.addEventListener("click", () => runIntegration(button, async () => {
+  const result = await managerRequest("test-connection", "POST", { service: button.dataset.testService });
+  integrationMessage(`${button.dataset.testService === "prowlarr" ? "Prowlarr" : "Sonarr"} connected (version ${result.version}).`);
+})));
+byId("discoverIndexers").addEventListener("click", event => runIntegration(event.currentTarget, async () => {
+  sources = await managerRequest("discover", "POST", {});
+  indexerCatalog = sources;
+  setIndexerOptions();
+  feeds = await managerRequest("feeds");
+  renderIntegrations();
+  integrationMessage(`Discovered ${sources.filter(source => source.origin === "Prowlarr").length} upstream torrent indexers. Proxy feeds were excluded.`);
+}));
+byId("syncSonarr").addEventListener("click", event => runIntegration(event.currentTarget, async () => {
+  const result = await managerRequest("sync-sonarr", "POST", {});
+  integrationMessage(`${result.entries.length} feeds synchronized. ${result.message}`);
+}));
+
+function openFeedEditor(id = null) {
+  if (integrationBusy || settings?.feedsManaged) return;
+  const feed = feeds.find(value => value.id === id);
+  editingFeedId = feed?.id || null;
+  byId("feedForm").reset();
+  byId("feedEditorTitle").textContent = feed ? "Edit feed" : "Add feed";
+  byId("feedId").value = feed?.id || "";
+  byId("feedId").readOnly = Boolean(feed);
+  byId("feedName").value = feed?.name || "";
+  byId("feedMode").value = feed?.mode || "anime";
+  byId("feedEnabled").checked = feed?.enabled !== false;
+  const options = [...sources];
+  for (const missing of feed?.unavailableSources || []) options.push({ id: missing, name: `Unavailable (${missing})`, origin: "Rediscover Prowlarr" });
+  byId("feedSources").innerHTML = options.map(source => `<label><input type="checkbox" name="source" value="${escapeHtml(source.id)}" ${feed?.sourceIds.includes(source.id) ? "checked" : ""} /><span>${escapeHtml(source.name)}<small>${escapeHtml(source.origin)}</small></span></label>`).join("");
+  byId("feedError").hidden = true;
+  syncSiteSelects();
+  byId("feedDialog").showModal();
+  byId("feedName").focus();
+}
+byId("addFeed").addEventListener("click", () => openFeedEditor());
+byId("feedList").addEventListener("click", event => {
+  const button = event.target.closest("[data-feed-action]");
+  const id = button?.closest("[data-feed-id]")?.dataset.feedId;
+  if (!id || button.disabled) return;
+  if (button.dataset.feedAction === "edit") openFeedEditor(id);
+  else if (!isSaving) {
+    byId("ruleProfile").value = id;
+    currentView = "all";
+    els.ruleSearch.value = "";
+    els.stateFilter.value = "all";
+    showPage("rules");
+    hydrateRules();
+  }
+});
+for (const id of ["closeFeed", "cancelFeed"]) byId(id).addEventListener("click", () => { if (!integrationBusy) byId("feedDialog").close(); });
+byId("feedDialog").addEventListener("cancel", event => { if (integrationBusy) event.preventDefault(); });
+byId("feedForm").addEventListener("submit", event => {
+  event.preventDefault();
+  if (!event.currentTarget.reportValidity()) return;
+  runIntegration(byId("saveFeed"), async () => {
+    const sourceIds = [...byId("feedSources").querySelectorAll("input:checked")].map(input => input.value);
+    if (!sourceIds.length) throw new Error("Select at least one upstream indexer.");
+    const previous = feeds.find(feed => feed.id === editingFeedId);
+    const feed = { ...previous, id: byId("feedId").value, name: byId("feedName").value.trim(), mode: byId("feedMode").value, enabled: byId("feedEnabled").checked, sourceIds };
+    if (!editingFeedId && feeds.some(value => value.id === feed.id)) throw new Error("Choose a unique feed ID.");
+    const candidate = editingFeedId ? feeds.map(value => value.id === editingFeedId ? feed : value) : [...feeds, feed];
+    feeds = await managerRequest("feeds", "PUT", candidate);
+    renderIntegrations();
+    byId("feedDialog").close();
+    integrationMessage("Feed saved with its own rule profile. Sync feeds to Sonarr when ready.");
+  });
+});

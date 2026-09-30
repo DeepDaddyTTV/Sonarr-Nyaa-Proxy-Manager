@@ -2,13 +2,13 @@
 
 [Project guide / wiki](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/) · [Buy Me a Coffee](https://buymeacoffee.com/deepdaddyttv)
 
-Sonarr Proxy Manager is a Dockerized Torznab proxy for Sonarr. It searches Nyaa by default and can query additional Torznab-compatible indexers configured in Compose. It expands searches, normalizes release titles, keeps episode results separate from season packs, and provides an authenticated web manager for built-in and custom matching rules.
+Sonarr Proxy Manager is a Dockerized Torznab proxy for Sonarr. Connect Prowlarr with its API key, select upstream indexers, and publish separate Anime or TV feeds with independent rules. Your existing Prowlarr-to-Sonarr connection keeps working normally. Nyaa is also available directly, and additional Torznab sources can be configured in Compose.
 
 ## What It Does
 
-Sonarr sends a Torznab search to `/api`. The proxy builds bounded query variants, searches Nyaa and any configured Torznab upstreams, checks that results belong to the requested series and season, and returns one RSS 2.0 feed containing the merged results. Episode searches return only the requested episode; season searches filter out single episodes and partial ranges. Dual Audio releases are labeled as Japanese and English in both the title and Torznab language attributes.
+Each virtual feed has its own endpoint, such as `/feeds/nyaa-anime/api` or `/feeds/lime-tv/api`. A request searches only that feed's selected upstreams and applies only its rule profile. Episode searches exclude packs; season searches exclude single episodes and partial ranges. Anime profiles retain expanded queries, title normalization, and Japanese/English Dual Audio annotation. New TV profiles leave titles and audio languages unchanged by default while retaining exact-series and episode/season filtering, including dated Daily-series episodes.
 
-The browser rule manager is served at `/manager/`. Built-in rules are enabled and locked by default. A lock protects a rule's editable settings in the UI; unlock a rule to change its enabled state or display name and description. The actual matching behavior for each built-in rule is implemented by the proxy. Custom rules can prefer, exclude, rewrite, or annotate matching releases for all searches, episode searches, or season searches, and can target one configured indexer or all of them. Rule settings persist in `/data/custom-rules.json`.
+The browser manager is served at `/manager/`, with a **Settings** tab for API connections, **Proxy feeds** for virtual indexers, and a **Rule profile** picker for independent built-in/custom rules. Built-ins start locked; click the lock icon to unlock editing. Custom rules can prefer, exclude, rewrite, or annotate titles for one upstream or every upstream in their profile. The original combined `/api` endpoint and its rules remain available for backward compatibility; discovered Prowlarr sources are not automatically added to that legacy endpoint.
 
 ## Requirements
 
@@ -44,7 +44,11 @@ services:
     environment:
       SONARR_URL: ${SONARR_URL:-}
       SONARR_API_KEY: ${SONARR_API_KEY:-}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      PROXY_PUBLIC_URL: ${PROXY_PUBLIC_URL:-}
       PROXY_API_KEY: ${PROXY_API_KEY:-}
+      PROWLARR_DISCOVER_ON_START: ${PROWLARR_DISCOVER_ON_START:-false}
       UPSTREAM_INDEXERS_JSON: "${UPSTREAM_INDEXERS_JSON:-[]}"
       AUTH_USERNAME: ${AUTH_USERNAME:?Set AUTH_USERNAME}
       AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD}
@@ -69,8 +73,12 @@ AUTH_USERNAME=proxy-admin
 AUTH_PASSWORD=replace-with-a-long-unique-password
 AUTH_COOKIE_SECURE=false
 PROXY_API_KEY=
+PROXY_PUBLIC_URL=http://sonarr-proxy-manager:8787
 SONARR_URL=
 SONARR_API_KEY=
+PROWLARR_URL=
+PROWLARR_API_KEY=
+PROWLARR_DISCOVER_ON_START=false
 UPSTREAM_INDEXERS_JSON='[{"id":"prowlarr-anime","name":"Prowlarr Anime","url":"http://prowlarr:9696/1/api","api_key":"replace-with-prowlarr-api-key","categories":["5000","5070"]}]'
 ```
 
@@ -78,7 +86,60 @@ Nyaa is always available as the built-in source. The optional JSON array adds To
 
 Start the service with `docker compose up -d`. The manager is available locally at `http://127.0.0.1:8787/manager/`. Do not expose the manager publicly. If you put it behind HTTPS, set `AUTH_COOKIE_SECURE=true` and use a private, access-controlled route.
 
-### Connect Sonarr
+### Connect Prowlarr and Sonarr in the Manager
+
+1. Open **Settings**. Enter the Prowlarr base URL and API key from Prowlarr's **Settings / General**.
+2. Enter the Sonarr base URL and API key from Sonarr's **Settings / General**. This key is used for registration and series metadata lookup, not downloads.
+3. Enter the **Proxy base URL** reachable from Sonarr, for example `http://sonarr-proxy-manager:8787` on a shared network. It is a network address, not an instruction to expose the manager publicly.
+4. Save settings, then test the saved connections. Empty API-key inputs preserve saved keys. Nonempty environment values take precedence and are read-only in the UI.
+5. Open **Proxy feeds** and select **Discover Prowlarr indexers**. Discovery imports enabled searchable torrent indexers; it excludes this manager's feeds and legacy Nyaa Season Proxy entries to avoid recursive requests. No Prowlarr indexer or application is modified.
+6. Add `Sonarr Proxy Nyaa`, select **Anime only**, and select the discovered Nyaa source. Add `Sonarr Proxy Lime`, select **TV only**, and select LimeTorrents. One feed can select several upstreams if they should share a rule profile.
+7. Use **Edit rules** on each feed. Built-in anime settings are cloned once from your existing configuration. New TV/both profiles start with anime normalization, query expansion, year stripping, and Japanese/English annotation disabled. Unlock a built-in before changing its enabled state.
+8. Select **Sync feeds to Sonarr**. Registration creates or updates only entries owned by this manager. It is explicit, not automatic: startup never writes Sonarr indexers. Repeated syncs update the same entries rather than creating duplicates. Disable a feed and sync again to disable its Sonarr entry; no indexers are deleted.
+
+<figure>
+  <img src="assets/screenshots/connection-settings.webp" alt="Mimik capture of the Settings tab and saved Prowlarr connection" />
+  <figcaption>Settings keeps API keys server-side. This Mimik capture uses a local documentation demo, not a live installation.</figcaption>
+</figure>
+
+<figure>
+  <img src="assets/screenshots/feed-category-menu.webp" alt="Mimik capture of the Sonarr Proxy Lime feed editor with TV only selected and LimeTorrents checked" />
+  <figcaption>Give each feed its own Sonarr name, series category, and upstream selection. LimeTorrents is selected for this TV-only example; Nyaa is not.</figcaption>
+</figure>
+
+| Virtual indexer | Regular Categories in Sonarr | Anime Categories in Sonarr |
+| --- | --- | --- |
+| Sonarr Proxy Nyaa / Anime only | Empty | `5070` |
+| Sonarr Proxy Lime / TV only | Specific TV subcategories, excluding `5000` and `5070` | Empty |
+| Anime and TV | Specific TV subcategories | `5070` |
+
+Set the show's **Series Type** to Anime or Standard/Daily as appropriate. Sonarr uses that type to choose the category field; it does not infer anime from the indexer name. The broad parent category **TV (`5000`) includes Anime (`5070`)**, so the manager does not use `5000` in the registered standard-search field. A tracker exposing only parent TV can still be queried upstream through `5000`; the virtual feed's request routing remains separate and explicitly categorized anime items are excluded from its TV path.
+
+Existing raw Prowlarr entries continue returning their original results; a release can appear once raw and once rewritten. The manager never edits their categories. For strict separation across those raw entries too, configure Prowlarr's Sonarr application **Sync Categories / Anime Sync Categories** appropriately. Avoid manually editing Prowlarr-owned Sonarr fields when using Full Sync, which can overwrite those edits. Existing legacy proxy entries also remain unchanged; disable them yourself when you no longer want combined-feed results. See [Prowlarr application sync](https://wiki.servarr.com/en/prowlarr/quick-start-guide) and [Sonarr indexer settings](https://wiki.servarr.com/sonarr/settings#indexers).
+
+### Configure Connections and Feeds in Compose
+
+Instead of entering connections in Settings, set these environment variables on the same Compose service. Keep their values in an untracked `.env`; the names below are placeholders, not real keys:
+
+```yaml
+environment:
+  PROWLARR_URL: ${PROWLARR_URL:?Set PROWLARR_URL}
+  PROWLARR_API_KEY: ${PROWLARR_API_KEY:?Set PROWLARR_API_KEY}
+  SONARR_URL: ${SONARR_URL:?Set SONARR_URL}
+  SONARR_API_KEY: ${SONARR_API_KEY:?Set SONARR_API_KEY}
+  PROXY_PUBLIC_URL: http://sonarr-proxy-manager:8787
+  PROXY_API_KEY: ${PROXY_API_KEY:?Set a separate proxy key}
+  PROWLARR_DISCOVER_ON_START: "true"
+  PROXY_FEEDS_JSON: >-
+    [{"id":"nyaa-anime","name":"Sonarr Proxy Nyaa","mode":"anime","sourceIds":["prowlarr-2"]},
+     {"id":"lime-tv","name":"Sonarr Proxy Lime","mode":"tv","sourceIds":["prowlarr-22"]}]
+```
+
+Replace `2` and `22` with your own Prowlarr indexer IDs. They are local IDs, not universal tracker identifiers. `PROXY_FEEDS_JSON` makes feed definitions read-only in the UI; rules remain editable. Remove it if you want to manage feed definitions in the UI. Environment-declared feeds trigger startup discovery by default unless `PROWLARR_DISCOVER_ON_START=false` is explicitly set. If Prowlarr is unavailable, the app starts and retains an existing discovery snapshot; retry discovery when it is available.
+
+For a completely manual Sonarr setup, add one custom Torznab entry per feed. Use the proxy base URL, **API Path** `/feeds/<feed-id>/api`, and the proxy feed key. New feed endpoints always require a key; if none was supplied, a persistent one is generated and sent directly by **Sync feeds to Sonarr**. To enter it manually, first set a known key in Settings or `PROXY_API_KEY`. Keep RSS disabled. Use the two category fields from the table above.
+
+### Connect the Legacy Combined Feed to Sonarr
 
 Add the proxy once as a custom Torznab indexer in Sonarr. Upstream indexers are searched behind this single endpoint:
 
@@ -150,7 +211,7 @@ The proxy must be able to reach `jackett:9117` on its Docker network. Keep the r
 
 ## Built-In Rules
 
-These eight rules are enabled and locked by default. Unlocking a built-in rule permits changing its manager settings; it does not replace or redefine the matching algorithm described here.
+These eight built-ins start locked. They are enabled by default for the legacy/anime profiles; the four anime-specific transformations described above start disabled for new TV/both profiles. Unlocking a rule permits changing its manager settings, not redefining its algorithm.
 
 | Rule | Default behavior |
 | --- | --- |
@@ -167,11 +228,11 @@ Weekly episode searches are not a goal of this proxy: the base behavior focuses 
 
 ## Add a Custom Rule
 
-Sign in to `/manager/`, open **Custom**, and select **Add rule**. Custom rules are editable by default; the lock icon is optional protection you can turn on after saving.
+Sign in to `/manager/`, select the intended **Rule profile**, open **Custom**, and select **Add rule**. Rules in one profile do not affect another profile or the legacy feed. Custom rules are editable by default; locking is optional protection.
 
 1. Enter a name for the rule and the text to find in release titles.
 2. Choose a scope: episodes and seasons, single episodes only, or season packs only.
-3. Choose **All indexers** or a specific configured source. The selector includes Nyaa and the names from `UPSTREAM_INDEXERS_JSON`.
+3. Choose **All indexers in this profile** or a specific upstream selected for that feed. Sources can come from Prowlarr discovery or `UPSTREAM_INDEXERS_JSON`.
 4. Choose an action: prefer, exclude, replace matching text, or add a title label. Replacement and label actions also need their corresponding text value.
 5. Save the rule. Click its lock control only if you want to prevent accidental edits later.
 
@@ -182,7 +243,7 @@ For each candidate release, the proxy checks your enabled custom rules after its
 - **Episodes and seasons** applies to either type of search.
 - **Single episodes only** applies when Sonarr asks for a particular episode (`season` and `ep`).
 - **Season packs only** applies to a season search (`season` with no `ep`). It does not apply to an episode search that happens to return a season-pack candidate; the built-in episode filter rejects that candidate first.
-- **All indexers** applies across Nyaa and every configured Torznab source. Selecting a named indexer limits the rule to releases received from that source.
+- **All indexers in this profile** applies only across that profile's selected upstreams. Selecting a named indexer further limits the rule to that source.
 
 ### Actions
 
@@ -233,9 +294,15 @@ To remove a noisy release group only from one source, create a rule such as:
 
 The match text may include brackets or other literal characters. If the same title appears from Nyaa or another indexer, that copy remains eligible. Choose **All indexers** only when you intend to exclude every copy.
 
+### Example: A TV Rule for a Discovered LimeTorrents Feed
+
+On **Proxy feeds**, click **Edit rules** for `Sonarr Proxy Lime`, then **Add rule**. Name it `Exclude sample TV releases`, enter `SAMPLE` in **Title contains**, choose **Episodes and seasons**, select the discovered **LimeTorrents** source, and choose **Exclude matching results**. Save it. A release titled `Example.Show.S01E02.SAMPLE.1080p` is now dropped from this feed, while `Example.Show.S01E02.1080p` remains eligible. No Nyaa profile, other feed, or raw Prowlarr result is changed.
+
+The same substring can match legitimate titles containing that word: keep matches specific. A rule cannot restore a candidate already removed by episode/season isolation. To edit those built-ins, unlock them in the selected profile first. Changing a rule is effective on the next request and does not require Sonarr synchronization; changing a feed's name, category, or enabled state does.
+
 ### Saving and Locking Rules
 
-Rules save automatically to the persistent `/data/custom-rules.json` file. **Export configuration** downloads a backup you can keep with your deployment notes. Custom rules start unlocked so they can be edited or removed; click their lock control when you want to protect a finished rule. Built-in rules start locked because their underlying behavior is part of the proxy, and changing their displayed settings does not create a new matching algorithm. Unlocking those entries only allows editing their manager settings.
+Legacy rules persist in `/data/custom-rules.json`; each feed's profile persists in `/data/feed-rules/<feed-id>.json`. Connections, discovery snapshots, and Sonarr ownership mappings persist in `/data/integrations.json` with owner-only permissions. **Export configuration** exports the currently selected rule profile, never API keys or connections. Back up the whole private `/data` volume for migration; do not publish `integrations.json`. Built-in locks must be removed in a separate save before editing settings. Custom rules start unlocked.
 
 You do not need to write XML or edit JSON to create a rule. XML is the Torznab response format sent to Sonarr; the rule manager provides the supported way to add and change rules.
 
@@ -329,13 +396,19 @@ Environment variables (defaults apply when omitted):
 | --- | --- | --- |
 | `PORT` | `8787` | HTTP port inside the container. |
 | `RULES_PATH` | `/data/custom-rules.json` | Persistent built-in and custom rule configuration. |
+| `INTEGRATIONS_PATH` | Beside `RULES_PATH`, named `integrations.json` | Private saved connections, source discovery, feeds, and Sonarr ownership. |
+| `PROWLARR_URL` | empty | Prowlarr base URL reachable from the proxy. |
+| `PROWLARR_API_KEY` | empty | Prowlarr API key for discovery and individual upstream searches. |
+| `PROWLARR_DISCOVER_ON_START` | `true` with environment-declared feeds; otherwise `false` | Refresh upstream discovery at startup; failure can be retried in the UI. |
+| `PROXY_PUBLIC_URL` | empty | Proxy base URL reachable from Sonarr, used for registration. The name does not require public exposure. |
+| `PROXY_FEEDS_JSON` | unset | Optional declarative array of `{id,name,mode,sourceIds,enabled,tvCategories}`. Modes: `anime`, `tv`, `both`. |
 | `NYAA_BASE_URL` | `https://nyaa.si` | Nyaa base URL used for RSS searches. |
 | `NYAA_CATEGORY` | `1_2` | Nyaa category filter; `1_2` is Anime - English-translated. |
 | `NYAA_FILTER` | `0` | Nyaa filter value. |
 | `UPSTREAM_INDEXERS_JSON` | `[]` | JSON array of additional Torznab upstreams. Each entry needs a unique `id`, display `name`, API `url`, and optionally `api_key` and `categories`. |
-| `SONARR_URL` | empty | Sonarr base URL reachable from the proxy; used for optional series metadata lookup. |
-| `SONARR_API_KEY` | empty | Sonarr API key for optional metadata lookup. |
-| `PROXY_API_KEY` | empty | Optional API key required for Torznab `/api` requests. |
+| `SONARR_URL` | empty | Sonarr base URL for metadata lookup and explicit feed registration. |
+| `SONARR_API_KEY` | empty | Sonarr API key. |
+| `PROXY_API_KEY` | generated for new feeds | Key for `/feeds/<id>/api`; also protects legacy `/api` when configured through environment or legacy config. UI key edits apply to new feeds only. |
 | `AUTH_USERNAME` | unset | Manager sign-in username; configure with `AUTH_PASSWORD`. |
 | `AUTH_PASSWORD` | unset | Manager sign-in password; configure with `AUTH_USERNAME`. |
 | `AUTH_COOKIE_SECURE` | `false` | Set `true` when accessing the manager over HTTPS. |
@@ -351,6 +424,12 @@ The manager session cookie is HTTP-only, same-site, and expires after 12 hours. 
 | --- | --- |
 | `/api` | Torznab endpoint to add as an indexer in Sonarr. |
 | `/api?t=caps` | Torznab capabilities response. |
+| `/feeds/<feed-id>/api` | Authenticated, category-scoped Torznab endpoint for one virtual feed. |
+| `/manager/api/settings` | Authenticated redacted connection settings (GET/PUT). |
+| `/manager/api/feeds` | Authenticated virtual feed definitions (GET/PUT). |
+| `/manager/api/discover` | Explicit Prowlarr discovery (POST). |
+| `/manager/api/sync-sonarr` | Explicit owned-feed registration (POST). |
+| `/manager/api/rules?feed=<feed-id>` | Rules for a selected profile (GET/PUT). Omit `feed` for legacy rules. |
 | `/manager/` | Authenticated rule manager. |
 | `/manager/login` | Manager sign-in page. |
 | `/health` | Basic health response. |

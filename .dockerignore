@@ -3,3 +3,11 @@
 README.md
 test_*.py
 __pycache__
+.env*
+.playwright-cli
+.playwright
+integrations.json
+custom-rules.json
+sonarr_proxy_config.json
+feed-rules
+docs

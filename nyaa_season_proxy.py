@@ -98,6 +98,8 @@ class Release:
     indexer_id: str = "nyaa"
     indexer_name: str = "Nyaa"
     source_guid: str = ""
+    categories: Tuple[str, ...] = ()
+    torznab_attributes: Tuple[Tuple[str, str], ...] = ()
 
     @property
     def guid(self) -> str:
@@ -427,39 +429,69 @@ def public_indexers() -> List[dict]:
     return [{"id": source["id"], "name": source["name"]} for source in configured_indexers()]
 
 
-def fetch_torznab(query: str, indexer_id: str, season: Optional[str] = None, episode: Optional[str] = None) -> List[Release]:
+def fetch_torznab(query: str, indexer_id: str, season: Optional[str] = None, episode: Optional[str] = None, *, params: Optional[dict] = None) -> List[Release]:
     source = next((item for item in configured_indexers() if item["id"] == indexer_id), None)
     if source is None or source["type"] != "torznab":
         return []
 
-    cache_key = f"{indexer_id}|{query}|{season or ''}|{episode or ''}"
+    extra = params or {}
+    action = first(extra, "t", "tvsearch")
+    if params is not None and action == "tvsearch" and not source.get("tvSearchParams", ["q"]):
+        action = "search"
+    categories = extra.get("cat", source["categories"])
+    if params is not None and source.get("categories"):
+        supported = set(str(value) for value in source["categories"])
+        selected = set(str(value) for value in categories)
+        narrowed = supported.intersection(selected)
+        if narrowed:
+            categories = sorted(narrowed)
+        elif "5000" in supported:
+            # Some trackers expose only parent TV, even when the virtual feed
+            # correctly separates Sonarr's standard and anime search categories.
+            categories = ["5000"]
+        else:
+            return []
+    if params is not None and action == "search" and not extra.get("_absolute") and "5070" not in extra.get("cat", []):
+        if extra.get("_date"):
+            query = f"{query} {extra['_date']}"
+        elif season and season.isdigit():
+            token = f"S{int(season):02d}" + (f"E{int(episode):02d}" if episode and episode.isdigit() else "")
+            if token.casefold() not in query.casefold():
+                query = f"{query} {token}"
+    cache_key = f"{source['url']}|{indexer_id}|{query}|{season or ''}|{episode or ''}|{json.dumps(extra, sort_keys=True)}"
     cached = _CACHE.get(cache_key)
     now = time.time()
     if cached and now - cached[0] < CACHE_TTL_SECONDS:
         return cached[1]
 
-    params = [("t", "tvsearch"), ("q", query), ("limit", "100")]
-    if season:
-        params.append(("season", season))
-    if episode:
-        params.append(("ep", episode))
-    if source["categories"]:
-        params.append(("cat", ",".join(source["categories"])))
+    parameters = [("t", action), ("q", query), ("limit", "100")]
+    if action == "tvsearch":
+        if season:
+            parameters.append(("season", season))
+        if episode and not extra.get("_absolute"):
+            parameters.append(("ep", episode))
+        for identifier in ("tvdbid", "imdbid"):
+            if identifier in source.get("tvSearchParams", []) and first(extra, identifier):
+                parameters.append((identifier, first(extra, identifier)))
+    if categories:
+        parameters.append(("cat", ",".join(str(value) for value in categories)))
     if source["api_key"]:
-        params.append(("apikey", source["api_key"]))
+        parameters.append(("apikey", source["api_key"]))
     parts = urllib.parse.urlsplit(source["url"])
-    replaced = {key for key, _value in params}
+    replaced = {key for key, _value in parameters}
     existing_query = [
         (key, value)
         for key, value in urllib.parse.parse_qsl(parts.query, keep_blank_values=True)
         if key not in replaced
     ]
-    url = urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(existing_query + params)))
+    url = urllib.parse.urlunsplit(parts._replace(query=urllib.parse.urlencode(existing_query + parameters)))
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
         payload = response.read()
 
     root = ET.fromstring(payload)
+    if root.tag == "error":
+        raise ValueError("Upstream Torznab request failed")
     releases = [parse_torznab_item(item, source) for item in root.findall("./channel/item")]
     releases = [release for release in releases if release is not None]
     _CACHE[cache_key] = (now, releases)
@@ -509,6 +541,8 @@ def parse_torznab_item(item: ET.Element, source: dict) -> Optional[Release]:
         indexer_id=source["id"],
         indexer_name=source["name"],
         source_guid=guid,
+        categories=tuple(child.get("value", "") for child in item.findall(f"{{{TORZNAB_NS}}}attr") if child.get("name") == "category"),
+        torznab_attributes=tuple((child.get("name", ""), child.get("value", "")) for child in item.findall(f"{{{TORZNAB_NS}}}attr")),
     )
 
 
@@ -617,6 +651,8 @@ def caps_xml() -> bytes:
         ("5030", "SD"),
         ("5040", "HD"),
         ("5045", "UHD"),
+        ("5050", "Other"),
+        ("5060", "Sport"),
         ("5070", "Anime"),
         ("5080", "Documentary"),
         ("5090", "Other"),
@@ -672,6 +708,13 @@ def feed_xml(releases: Iterable[Release], self_url: str) -> bytes:
         add_torznab_attr(item, "grabs", str(release.downloads))
         add_torznab_attr(item, "infohash", release.info_hash)
         add_torznab_attr(item, "magneturl", release.magnet_url)
+        rewritten = {"category", "seeders", "peers", "grabs", "infohash", "magneturl"}
+        for name, value in release.torznab_attributes:
+            if name not in rewritten:
+                add_torznab_attr(item, name, value)
+        for additional in release.categories:
+            if additional != category_id:
+                add_torznab_attr(item, "category", additional)
 
     return xml_bytes(rss)
 
@@ -741,7 +784,8 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def log_message(self, fmt: str, *args: object) -> None:
-        print(f"{self.address_string()} - {fmt % args}", file=sys.stderr)
+        message = re.sub(r"(?i)(apikey=)[^&\s\"]+", r"\1[redacted]", fmt % args)
+        print(f"{self.address_string()} - {message}", file=sys.stderr)
 
 
 def first(params: Dict[str, List[str]], name: str, default: str = "") -> str:

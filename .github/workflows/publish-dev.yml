@@ -18,7 +18,7 @@ jobs:
         with:
           python-version: '3.13'
       - name: Test proxy and manager
-        run: python -m unittest -q test_nyaa_proxy_runtime_patch test_manager_server
+        run: python -m unittest discover -q
       - name: Check manager scripts
         run: |
           node --check app.js

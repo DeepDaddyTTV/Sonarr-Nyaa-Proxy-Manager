@@ -30,6 +30,8 @@
           <button class="nav-item is-selected" type="button" data-view="all" aria-pressed="true"><span class="ui-icon icon-filter" aria-hidden="true"></span><span>All rules</span><span class="nav-count" id="navAllCount">8</span></button>
           <button class="nav-item" type="button" data-view="default" aria-pressed="false"><span class="ui-icon icon-settings" aria-hidden="true"></span><span>Built-in</span><span class="nav-count" id="navDefaultCount">8</span></button>
           <button class="nav-item" type="button" data-view="custom" aria-pressed="false"><span class="ui-icon icon-edit" aria-hidden="true"></span><span>Custom</span><span class="nav-count" id="navCustomCount">0</span></button>
+          <button class="nav-item" type="button" data-page="feeds" aria-pressed="false"><span class="ui-icon icon-home" aria-hidden="true"></span><span>Proxy feeds</span><span class="nav-count" id="navFeedCount">0</span></button>
+          <button class="nav-item" type="button" data-page="settings" aria-pressed="false"><span class="ui-icon icon-settings" aria-hidden="true"></span><span>Settings</span></button>
         </nav>
         <div class="sidebar-bottom">
           <div class="sidebar-help"><span class="ui-icon icon-lock" aria-hidden="true"></span><strong>Protected by default</strong><p>Unlock a built-in rule to edit it. Lock it again when you're finished.</p></div>
@@ -37,6 +39,9 @@
         </div>
       </aside>
       <main class="main-content" id="main" tabindex="-1">
+        <p class="integration-feedback" id="integrationFeedback" role="status" aria-live="polite" hidden></p>
+        <div id="ruleWorkspace">
+        <div class="profile-bar"><span>Rule profile</span><span class="site-select" data-select-label="Rule profile"><select id="ruleProfile"><option value="">Legacy combined feed (/api)</option></select></span><p>Each proxy feed has its own built-in and custom rules.</p></div>
         <div class="page-heading">
           <div><p class="overline">Search configuration</p><h1 id="pageTitle">Rule library</h1><p>Control which releases reach Sonarr.</p></div>
           <button class="button button-primary" id="openRuleForm" type="button" disabled><span class="ui-icon icon-add" aria-hidden="true"></span>Add rule</button>
@@ -66,6 +71,23 @@
           <div class="library-footer"><span id="resultCount" role="status" aria-live="polite">Loading rules...</span><span>Changes save automatically</span></div>
         </section>
         <p class="page-note">Built-in rules start locked. Use the lock control to enable editing.</p>
+        </div>
+        <section id="feedsWorkspace" hidden aria-labelledby="feedsHeading">
+          <div class="page-heading"><div><p class="overline">Virtual indexers</p><h1 id="feedsHeading">Proxy feeds</h1><p>Separate sources. Separate rules. Your Prowlarr sync stays intact.</p></div><button class="button button-primary" id="addFeed" type="button"><span class="ui-icon icon-add" aria-hidden="true"></span>Add feed</button></div>
+          <div class="panel-actions"><button class="button button-secondary" id="discoverIndexers" type="button">Discover Prowlarr indexers</button><button class="button button-secondary" id="syncSonarr" type="button">Sync feeds to Sonarr</button></div>
+          <div class="feed-grid" id="feedList"></div>
+          <div class="connection-card" id="feedEmpty"><span class="ui-icon icon-home" aria-hidden="true"></span><h2>Give each search its own lane.</h2><p>Connect Prowlarr in Settings, discover your indexers, then create an Anime or TV feed. Built-in Nyaa is also available without Prowlarr.</p></div>
+          <p class="page-note">Only this manager's entries are synced. RSS is disabled. Disable a feed and sync again to disable its Sonarr entry. Your original Prowlarr entries are never modified.</p>
+        </section>
+        <section id="settingsWorkspace" hidden aria-labelledby="settingsHeading">
+          <div class="page-heading"><div><p class="overline">Connections</p><h1 id="settingsHeading">Settings</h1><p>Connect once, then choose which sources each feed uses.</p></div></div>
+          <form id="settingsForm" class="connection-grid" autocomplete="off">
+            <section class="connection-card"><div class="connection-heading"><span class="ui-icon icon-filter" aria-hidden="true"></span><h2>Prowlarr</h2><span class="connection-origin" id="prowlarrOrigin"></span></div><p>Discover enabled torrent indexers and search through their individual Torznab endpoints.</p><div class="editor-fields"><label>Base URL<input id="prowlarrUrl" type="url" placeholder="http://prowlarr:9696" /></label><label>API key<input id="prowlarrKey" type="password" autocomplete="new-password" maxlength="512" placeholder="Enter API key" /><span class="field-hint">A blank key keeps the saved value. Keys are never returned to the browser.</span></label></div><button class="button button-secondary connection-test" type="button" data-test-service="prowlarr">Test saved connection</button></section>
+            <section class="connection-card"><div class="connection-heading"><span class="ui-icon icon-settings" aria-hidden="true"></span><h2>Sonarr</h2><span class="connection-origin" id="sonarrOrigin"></span></div><p>Register only the proxy's own entries. Existing Prowlarr-managed indexers are left alone.</p><div class="editor-fields"><label>Base URL<input id="sonarrUrl" type="url" placeholder="http://sonarr:8989" /></label><label>API key<input id="sonarrKey" type="password" autocomplete="new-password" maxlength="512" placeholder="Enter API key" /><span class="field-hint">Also used to resolve series names for TVDB and IMDb searches.</span></label></div><button class="button button-secondary connection-test" type="button" data-test-service="sonarr">Test saved connection</button></section>
+            <section class="connection-card connection-wide"><div class="connection-heading"><span class="ui-icon icon-brand" aria-hidden="true"></span><h2>Proxy connection</h2><span class="connection-origin" id="proxyOrigin"></span></div><p>The address Sonarr can reach, not necessarily the address used by your browser. Leave off /manager and /api.</p><div class="editor-fields connection-fields"><label>Proxy base URL<input id="proxyUrl" type="url" placeholder="http://sonarr-proxy-manager:8787" /></label><label>Feed API key<input id="proxyKey" type="password" autocomplete="new-password" maxlength="512" placeholder="Keep generated or saved key" /><span class="field-hint">A persistent key is generated automatically. Set your own for manual setup, or let Sync feeds to Sonarr send it securely.</span></label></div></section>
+            <div class="settings-footer"><p>Environment values take precedence and are read-only here. Save before testing or discovering indexers.</p><button class="button button-primary" type="submit" id="saveSettings">Save settings</button></div>
+          </form>
+        </section>
       </main>
     </div>
     <dialog class="editor-drawer" id="ruleDialog" aria-labelledby="editorTitle">
@@ -78,13 +100,21 @@
           <fieldset id="customFields"><legend class="sr-only">Custom matching behavior</legend>
             <label>Title contains<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas" required /><span class="field-hint">Matches title text, ignoring case.</span></label>
             <div class="select-field"><span>Search scope</span><span class="select-wrap"><span class="site-select" data-select-label="Search scope"><select id="ruleScope" name="scope"><option value="all">Episodes and seasons</option><option value="episodes">Single episodes only</option><option value="seasons">Season packs only</option></select></span></span></div>
-            <div class="select-field"><span>Indexer</span><span class="select-wrap"><span class="site-select" data-select-label="Indexer"><select id="ruleIndexer" name="indexer"><option value="all">All indexers</option><option value="nyaa">Nyaa</option></select></span></span><span class="field-hint">Sources are configured with UPSTREAM_INDEXERS_JSON in your Compose environment.</span></div>
+            <div class="select-field"><span>Indexer</span><span class="select-wrap"><span class="site-select" data-select-label="Indexer"><select id="ruleIndexer" name="indexer"><option value="all">All indexers</option><option value="nyaa">Nyaa</option></select></span></span><span class="field-hint">Discover sources from Prowlarr in Proxy feeds, or configure them in Compose. Each profile applies rules only to its selected upstreams.</span></div>
             <div class="select-field"><span>Action</span><span class="select-wrap"><span class="site-select" data-select-label="Action"><select id="ruleAction" name="action"><option value="prefer">Prefer matching results</option><option value="exclude">Exclude matching results</option><option value="rewrite">Replace matching text</option><option value="annotate">Add a title label</option></select></span></span></div>
             <label id="valueField" hidden><span id="valueLabel">Replacement text</span><input id="ruleValue" name="value" maxlength="120" /></label>
           </fieldset>
         </div>
         <p class="editor-error" id="editorError" role="alert" hidden></p>
         <div class="editor-footer"><button class="button button-secondary" id="cancelRuleForm" type="button">Cancel</button><button class="button button-primary" id="saveRuleButton" type="submit">Save rule</button></div>
+      </form>
+    </dialog>
+    <dialog class="editor-drawer" id="feedDialog" aria-labelledby="feedEditorTitle">
+      <form class="editor-form" id="feedForm">
+        <div class="editor-heading"><div><p class="overline">Virtual Torznab indexer</p><h2 id="feedEditorTitle">Add feed</h2></div><button class="icon-button" id="closeFeed" type="button" aria-label="Close feed editor"><span class="ui-icon icon-close" aria-hidden="true"></span></button></div>
+        <p class="editor-intro">Choose sources and a search category. This feed gets its own rule profile. Changing its category later does not reset saved rules.</p>
+        <div class="editor-fields"><label>Name in Sonarr<input id="feedName" maxlength="64" placeholder="Sonarr Proxy Nyaa" required /></label><label>Feed ID<input id="feedId" maxlength="64" pattern="[A-Za-z0-9_\-]+" placeholder="nyaa-anime" required /><span class="field-hint">Used in the permanent feed URL. Cannot be changed after creation.</span></label><div class="select-field"><span>Series category</span><span class="site-select" data-select-label="Feed series category"><select id="feedMode"><option value="anime">Anime only</option><option value="tv">TV only (Standard / Daily)</option><option value="both">Anime and TV</option></select></span></div><label class="feed-check"><input id="feedEnabled" type="checkbox" checked />Enable interactive and automatic searches</label><fieldset class="source-fieldset"><legend>Upstream indexers</legend><div id="feedSources" class="source-list"></div><p class="field-hint">Select only actual upstreams. Proxy feeds are excluded from Prowlarr discovery to prevent loops.</p></fieldset></div>
+        <p class="editor-error" id="feedError" role="alert" hidden></p><div class="editor-footer"><button class="button button-secondary" id="cancelFeed" type="button">Cancel</button><button class="button button-primary" id="saveFeed" type="submit">Save feed</button></div>
       </form>
     </dialog>
   </body>
