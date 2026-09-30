@@ -1,64 +1,51 @@
 <!doctype html>
-<html lang="{{ page.lang | default: 'en' }}">
+<html lang="en" data-theme="dark">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#171818" />
-    <meta name="description" content="{{ site.description | escape }}" />
-    <title>{{ page.title | default: site.title | escape }}</title>
+    <meta name="theme-color" content="#070d16" />
+    <meta name="description" content="{{ page.description | default: site.description | escape }}" />
+    <title>{{ page.title | escape }} | Sonarr Proxy Manager</title>
     <link rel="icon" href="{{ '/assets/electronic.png' | relative_url }}" />
-    <link rel="stylesheet" href="{{ '/assets/guide.css' | relative_url }}" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="{{ '/assets/wiki.css' | relative_url }}" />
+    <script>
+      try { document.documentElement.dataset.theme = localStorage.getItem('sonarr-proxy-manager.wiki.theme') === 'light' ? 'light' : 'dark'; } catch {}
+    </script>
   </head>
   <body>
     <a class="skip-link" href="#guide-content">Skip to guide</a>
     <header class="topbar">
-      <a class="brand" href="{{ '/' | relative_url }}" aria-label="Sonarr Proxy Manager guide home">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span><strong>Sonarr Proxy Manager</strong><small>PROJECT GUIDE</small></span>
-      </a>
-      <nav class="topbar-actions" aria-label="Project links">
-        <a class="utility-link" href="{{ '/' | relative_url }}">Wiki</a>
-        <a class="utility-link" href="https://buymeacoffee.com/deepdaddyttv" target="_blank" rel="noreferrer">Buy Me a Coffee</a>
-        <a class="utility-link github-link" href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager" target="_blank" rel="noreferrer">GitHub</a>
-        <button class="theme-toggle" id="themeToggle" type="button" aria-label="Switch to light mode">
-          <span class="theme-symbol" aria-hidden="true"></span><span id="themeLabel">Light mode</span>
-        </button>
-      </nav>
-    </header>
-    <main id="guide-content" class="guide-shell">
-      <div class="guide-heading">
-        <p class="eyebrow">FIELD GUIDE <span></span> SONARR INTEGRATION</p>
-        <h1>{{ page.title | default: site.title | escape }}</h1>
-        <p class="lede">Route searches through a Torznab proxy, keep episodes and season packs distinct, and shape results with indexer-specific rules.</p>
+      <a class="brand" href="{{ '/' | relative_url }}"><span class="brand-mark" aria-hidden="true"></span><span><strong>Sonarr Proxy Manager</strong><small>DOCUMENTATION</small></span></a>
+      <div class="topbar-actions">
+        <a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager">GitHub</a>
+        <a class="support-link" href="https://buymeacoffee.com/deepdaddyttv">Buy Me a Coffee</a>
+        <button id="themeToggle" type="button"><span id="themeLabel">Light mode</span></button>
+        <button id="menuToggle" class="menu-toggle" type="button" aria-controls="docsSidebar" aria-expanded="false">Guide menu</button>
       </div>
-      <article class="guide-content">
-        {{ content }}
-      </article>
-      <footer class="guide-footer">
-        <span>SONARR PROXY MANAGER</span>
-        <div><a href="{{ '/' | relative_url }}">Project guide</a><a href="https://buymeacoffee.com/deepdaddyttv" target="_blank" rel="noreferrer">Support the project</a></div>
-      </footer>
-    </main>
-    <script>
-      (() => {
-        const root = document.documentElement;
-        const button = document.getElementById("themeToggle");
-        const label = document.getElementById("themeLabel");
-        let theme = "dark";
-        try { theme = localStorage.getItem("sonarr-proxy-manager.theme") || "dark"; } catch {}
-        const apply = value => {
-          theme = value === "light" ? "light" : "dark";
-          root.dataset.theme = theme;
-          document.querySelector('meta[name="theme-color"]').content = theme === "dark" ? "#171818" : "#f5f3ef";
-          label.textContent = theme === "dark" ? "Light mode" : "Dark mode";
-          button.setAttribute("aria-label", `Switch to ${theme === "dark" ? "light" : "dark"} mode`);
-        };
-        apply(theme);
-        button.addEventListener("click", () => {
-          apply(theme === "dark" ? "light" : "dark");
-          try { localStorage.setItem("sonarr-proxy-manager.theme", theme); } catch {}
-        });
-      })();
-    </script>
+    </header>
+    <div class="docs-shell">
+      <aside class="docs-sidebar" id="docsSidebar">
+        <p class="eyebrow">PROJECT GUIDE</p>
+        <nav class="docs-nav" aria-label="Documentation chapters">
+          {% for chapter in site.data.navigation %}
+          <a href="{{ chapter.path | relative_url }}" {% if page.url == chapter.path %}class="active" aria-current="page"{% endif %}><span>{{ chapter.number }}</span>{{ chapter.title }}</a>
+          {% endfor %}
+        </nav>
+        <div class="sidebar-card"><p class="eyebrow">QUICK START</p><strong>One proxy. Separate feeds.</strong><p>Port <code>8787</code><br />Manager <code>/manager/</code></p><a href="{{ '/installation/' | relative_url }}">Docker setup &rarr;</a></div>
+        <p class="sidebar-note">Public image.<br />Keep your installation private.</p>
+      </aside>
+      <main class="docs-main" id="guide-content">
+        <header class="docs-header"><p class="eyebrow">SONARR PROXY MANAGER / FIELD GUIDE</p><h1>{{ page.title | escape }}</h1><p>{{ page.description | default: site.description | escape }}</p></header>
+        <div class="reading-layout">
+          <article class="docs-content">{{ content }}</article>
+          <nav class="page-toc" id="pageToc" aria-label="On this page"><p class="eyebrow">ON THIS PAGE</p></nav>
+        </div>
+        <footer class="guide-footer"><span>SONARR PROXY MANAGER</span><a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager/blob/main/LICENSE">GPLv3</a><a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager">Source &amp; issues</a><a href="https://buymeacoffee.com/deepdaddyttv">Support the project</a></footer>
+      </main>
+    </div>
+    <script src="{{ '/assets/wiki.js' | relative_url }}" defer></script>
   </body>
 </html>

@@ -3,3 +3,4 @@ description: A Torznab proxy for Sonarr with configurable indexers, release rule
 url: https://deepdaddyttv.github.io
 baseurl: /Sonarr-Proxy-Manager
 markdown: kramdown
+exclude: [README.md, LICENSE]

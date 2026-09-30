@@ -8,6 +8,7 @@ on:
       - "LICENSE"
       - "docs/**"
       - "assets/screenshots/**"
+      - "examples/**"
       - ".github/workflows/pages.yml"
   workflow_dispatch:
 
@@ -33,6 +34,7 @@ jobs:
           cp LICENSE docs/LICENSE
           cp assets/icons/electronic.png docs/assets/electronic.png
           cp -R assets/screenshots docs/assets/screenshots
+          cp -R examples docs/assets/examples
       - uses: actions/jekyll-build-pages@v1
         with:
           source: ./docs

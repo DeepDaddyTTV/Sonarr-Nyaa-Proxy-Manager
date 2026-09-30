@@ -1,0 +1,9 @@
+# Optional: docker compose -f compose.yaml -f compose.feeds.yaml up -d
+# Discover indexers first. Replace 2 and 22 with your own Prowlarr IDs.
+services:
+  sonarr-proxy-manager:
+    environment:
+      PROWLARR_DISCOVER_ON_START: "true"
+      PROXY_FEEDS_JSON: >-
+        [{"id":"nyaa-anime","name":"Sonarr Proxy Nyaa","mode":"anime","sourceIds":["prowlarr-2"]},
+         {"id":"lime-tv","name":"Sonarr Proxy Lime","mode":"tv","sourceIds":["prowlarr-22"]}]

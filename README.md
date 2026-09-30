@@ -4,6 +4,20 @@
 
 Sonarr Proxy Manager is a Dockerized Torznab proxy for Sonarr. Connect Prowlarr with its API key, select upstream indexers, and publish separate Anime or TV feeds with independent rules. Your existing Prowlarr-to-Sonarr connection keeps working normally. Nyaa is also available directly, and additional Torznab sources can be configured in Compose.
 
+![Sonarr Proxy Manager main rule library](assets/screenshots/proxy-main.jpg)
+
+*Full interface capture from an isolated documentation demo. Connection details and rules in the guide are examples, not a private installation.*
+
+### Project Wiki
+
+- [Installation and Docker Compose](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/)
+- [Connect Sonarr and Prowlarr](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/connections/)
+- [Create feeds and configure Sonarr](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/feeds/)
+- [Anime / TV routing with Standard numbering](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/routing/)
+- [Built-in and custom rules, including LimeTorrents](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/rules/)
+- [XML, environment variables, and API reference](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/reference/)
+- [Troubleshooting](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/troubleshooting/)
+
 ## What It Does
 
 Each virtual feed has its own endpoint, such as `/feeds/nyaa-anime/api` or `/feeds/lime-tv/api`. A request searches only that feed's selected upstreams and applies only its rule profile. Episode searches exclude packs; season searches exclude single episodes and partial ranges. Anime profiles retain expanded queries, title normalization, and Japanese/English Dual Audio annotation. New TV profiles leave titles and audio languages unchanged by default while retaining exact-series and episode/season filtering, including dated Daily-series episodes.
@@ -44,6 +58,8 @@ services:
     environment:
       SONARR_URL: ${SONARR_URL:-}
       SONARR_API_KEY: ${SONARR_API_KEY:-}
+      SONARR_ANIME_TAG: ${SONARR_ANIME_TAG:-}
+      SONARR_TV_TAG: ${SONARR_TV_TAG:-}
       PROWLARR_URL: ${PROWLARR_URL:-}
       PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
       PROXY_PUBLIC_URL: ${PROXY_PUBLIC_URL:-}
@@ -78,9 +94,13 @@ SONARR_URL=
 SONARR_API_KEY=
 PROWLARR_URL=
 PROWLARR_API_KEY=
+SONARR_ANIME_TAG=
+SONARR_TV_TAG=
 PROWLARR_DISCOVER_ON_START=false
-UPSTREAM_INDEXERS_JSON='[{"id":"prowlarr-anime","name":"Prowlarr Anime","url":"http://prowlarr:9696/1/api","api_key":"replace-with-prowlarr-api-key","categories":["5000","5070"]}]'
+UPSTREAM_INDEXERS_JSON=[]
 ```
+
+Download the [Compose example](examples/compose.yaml) and [environment template](examples/env.example). Leave connection variables blank to manage them in Settings, or populate them in your private `.env`. For native Arr installations or Linux host networking, follow the [networking variants](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/#networking).
 
 Nyaa is always available as the built-in source. The optional JSON array adds Torznab-compatible upstreams; use the API URL and key shown by that indexer (for example, copy the Torznab URL from Prowlarr and make sure its hostname is reachable on the proxy's Docker network). `id` must be unique and use letters, numbers, `_` or `-`; `name` is shown in the rule editor. `categories` is optional and limits the upstream query to Torznab category IDs. After changing the Compose environment, recreate the container; the configured names then appear in the custom-rule Indexer selector. Indexer credentials remain server-side and are never returned by the manager API. They are present in the container environment, so keep the Compose file and `.env` private.
 
@@ -98,12 +118,12 @@ Start the service with `docker compose up -d`. The manager is available locally 
 8. Select **Sync feeds to Sonarr**. Registration creates or updates only entries owned by this manager. It is explicit, not automatic: startup never writes Sonarr indexers. Repeated syncs update the same entries rather than creating duplicates. Disable a feed and sync again to disable its Sonarr entry; no indexers are deleted.
 
 <figure>
-  <img src="assets/screenshots/connection-settings.webp" alt="Mimik capture of the Settings tab and saved Prowlarr connection" />
-  <figcaption>Settings keeps API keys server-side. This Mimik capture uses a local documentation demo, not a live installation.</figcaption>
+  <img src="assets/screenshots/proxy-settings.jpg" alt="Full proxy Settings interface with Prowlarr, Sonarr, and Anime / TV tag routing" />
+  <figcaption>Current Settings interface with documentation-only service names and saved-key placeholders. Keys stay server-side.</figcaption>
 </figure>
 
 <figure>
-  <img src="assets/screenshots/feed-category-menu.webp" alt="Mimik capture of the Sonarr Proxy Lime feed editor with TV only selected and LimeTorrents checked" />
+  <img src="assets/screenshots/proxy-lime-feed.jpg" alt="Full proxy Lime feed editor with TV only selected and LimeTorrents checked" />
   <figcaption>Give each feed its own Sonarr name, series category, and upstream selection. LimeTorrents is selected for this TV-only example; Nyaa is not.</figcaption>
 </figure>
 
@@ -166,8 +186,8 @@ Add the proxy once as a custom Torznab indexer in Sonarr. Upstream indexers are 
 7. Use **Test**, then **Save**. Make sure Sonarr already has a torrent download client configured; Sonarr and that client handle the download.
 
 <figure>
-  <img src="assets/screenshots/sonarr-torznab-setup.svg" alt="Illustrative Sonarr Torznab custom indexer setup showing the proxy base URL, API path, API key, search options, and categories" />
-  <figcaption>Configuration reference, not a live Sonarr screenshot. Sonarr's layout can vary by version; the values and field separation are the important part.</figcaption>
+  <img src="assets/screenshots/sonarr-torznab.jpg" alt="Real Sonarr Torznab editor with synthetic base URL, per-feed API Path, and Anime categories" />
+  <figcaption>Real Sonarr interface with synthetic data. This screenshot uses a new Anime feed path; use /api for the legacy combined feed. Show Advanced exposes API Path.</figcaption>
 </figure>
 
 | Setting | Value |
@@ -312,6 +332,10 @@ The match text may include brackets or other literal characters. If the same tit
 
 On **Proxy feeds**, click **Edit rules** for `Sonarr Proxy Lime`, then **Add rule**. Name it `Exclude sample TV releases`, enter `SAMPLE` in **Title contains**, choose **Episodes and seasons**, select the discovered **LimeTorrents** source, and choose **Exclude matching results**. Save it. A release titled `Example.Show.S01E02.SAMPLE.1080p` is now dropped from this feed, while `Example.Show.S01E02.1080p` remains eligible. No Nyaa profile, other feed, or raw Prowlarr result is changed.
 
+![Custom TV rule scoped to the discovered LimeTorrents source](assets/screenshots/proxy-lime-rule.jpg)
+
+Documentation-only example: this editor targets LimeTorrents within the TV feed, not Nyaa or every upstream.
+
 The same substring can match legitimate titles containing that word: keep matches specific. A rule cannot restore a candidate already removed by episode/season isolation. To edit those built-ins, unlock them in the selected profile first. Changing a rule is effective on the next request and does not require Sonarr synchronization; changing a feed's name, category, or enabled state does.
 
 ### Saving and Locking Rules
@@ -432,7 +456,7 @@ Environment variables (defaults apply when omitted):
 | `REQUEST_TIMEOUT_SECONDS` | `20` | Outbound request timeout. |
 | `SONARR_CONFIG_PATH` | `/app/sonarr_proxy_config.json` | Optional legacy JSON configuration file path. |
 
-The manager session cookie is HTTP-only, same-site, and expires after 12 hours. Use Docker secrets or an untracked environment file for credentials; never commit real credentials.
+The manager session cookie is HTTP-only, same-site, and expires after 12 hours. Use an untracked environment file for credentials; never commit real credentials. Direct Docker secret-file / *_FILE loading is not currently implemented.
 
 ## Endpoints
 
@@ -455,7 +479,7 @@ The manager session cookie is HTTP-only, same-site, and expires after 12 hours. 
 Run the tests and build locally:
 
 ```sh
-python -m unittest -q test_nyaa_proxy_runtime_patch test_manager_server
+python -m unittest discover -q
 docker build -t sonarr-proxy-manager:dev .
 ```
 
@@ -477,4 +501,4 @@ Replace `42` with the successful build's run number, then run `docker compose pu
 
 ## License
 
-Distributed under the MIT License. See [LICENSE](LICENSE).
+Licensed under the GNU General Public License, version 3 only (`GPL-3.0-only`). See [LICENSE](LICENSE). The container includes the license text and links to the corresponding source repository in its OCI metadata.

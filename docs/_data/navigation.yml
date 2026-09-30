@@ -1,0 +1,8 @@
+- {number: "00", title: Overview, path: /}
+- {number: "01", title: Installation, path: /installation/}
+- {number: "02", title: Connections, path: /connections/}
+- {number: "03", title: Feeds & Sonarr, path: /feeds/}
+- {number: "04", title: Anime / TV Routing, path: /routing/}
+- {number: "05", title: Custom Rules, path: /rules/}
+- {number: "06", title: XML & Configuration, path: /reference/}
+- {number: "07", title: Troubleshooting, path: /troubleshooting/}
