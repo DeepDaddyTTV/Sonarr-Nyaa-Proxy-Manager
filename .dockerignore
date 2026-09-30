@@ -4,6 +4,8 @@ README.md
 test_*.py
 __pycache__
 .env*
+mcp.env
+.venv
 .playwright-cli
 .playwright
 integrations.json

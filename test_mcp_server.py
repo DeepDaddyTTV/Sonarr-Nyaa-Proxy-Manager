@@ -77,7 +77,7 @@ class MCPTests(unittest.TestCase):
             params = StdioServerParameters(command=sys.executable, args=[str(Path(__file__).with_name("mcp_server.py"))], env={
                 "MCP_MANAGER_URL": self.url, "MCP_AUTH_USERNAME": "mcp-test-user", "MCP_AUTH_PASSWORD": "mcp-test-password",
             })
-            async with Client(params) as session:
+            async with Client(params, mode="legacy") as session:
                 catalog = await session.list_tools()
                 self.assertEqual({t.name for t in catalog.tools}, {"get_overview", "get_rules", "test_connection"})
                 self.assertTrue(all(t.annotations.read_only_hint for t in catalog.tools))
