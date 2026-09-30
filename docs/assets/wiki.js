@@ -11,8 +11,9 @@
     if (!icon || !context || !shape.complete || !shape.naturalWidth) return;
     const colors = getComputedStyle(root);
     const gradient = context.createLinearGradient(0, 0, 64, 64);
-    gradient.addColorStop(0, colors.getPropertyValue('--cyan').trim());
-    gradient.addColorStop(1, colors.getPropertyValue('--pink').trim());
+    gradient.addColorStop(0, colors.getPropertyValue('--icon-start').trim());
+    gradient.addColorStop(0.48, colors.getPropertyValue('--icon-middle').trim());
+    gradient.addColorStop(1, colors.getPropertyValue('--icon-end').trim());
     context.clearRect(0, 0, 64, 64);
     context.globalCompositeOperation = 'source-over';
     context.fillStyle = gradient;
@@ -32,7 +33,7 @@
     const target = root.dataset.theme === 'dark' ? 'light' : 'dark';
     themeLabel.textContent = `${target[0].toUpperCase()}${target.slice(1)} mode`;
     themeButton.setAttribute('aria-label', `Switch to ${target} mode`);
-    document.querySelector('meta[name="theme-color"]').content = target === 'light' ? '#070d16' : '#eef3f9';
+    document.querySelector('meta[name="theme-color"]').content = getComputedStyle(root).getPropertyValue('--canvas').trim();
     renderIcon();
   };
   applyTheme(root.dataset.theme);

@@ -1,9 +1,11 @@
 ---
 layout: default
 title: Feeds and Sonarr Setup
-description: Publish a virtual Torznab indexer for each source group and rule profile.
+description: Choose your search sources and add separate proxy entries to Sonarr.
 permalink: /feeds/
 ---
+
+A **feed** is an entry Sonarr searches through the proxy. You choose which indexers it searches and which rules it applies. For example, `Sonarr Proxy Nyaa` can search Nyaa for anime while `Sonarr Proxy Lime` searches LimeTorrents for TV. They appear as separate entries in Sonarr, alongside any entries Prowlarr already added.
 
 ## Discover Sources
 

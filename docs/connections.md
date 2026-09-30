@@ -1,9 +1,11 @@
 ---
 layout: default
-title: Connect the Arr Apps
-description: API connections in Settings or Compose, without replacing your Prowlarr link.
+title: Connect Sonarr and Prowlarr
+description: Give the proxy permission to search your sources and add its entries to Sonarr.
 permalink: /connections/
 ---
+
+An **API key** lets one app communicate with another without using your browser login. The proxy needs Prowlarr's key to find and search your indexers, and Sonarr's key to identify series and add the proxy's search entries. Use the key from each app in its matching field; they are not interchangeable.
 
 ## 1. Find the API Keys
 
@@ -17,7 +19,7 @@ In **Prowlarr / Settings / General**, find **Security / API Key**. Copy it priva
 
 <figure><a href="{{ '/assets/screenshots/proxy-settings.jpg' | relative_url }}"><img src="{{ '/assets/screenshots/proxy-settings.jpg' | relative_url }}" alt="Full proxy Settings tab including Anime and TV routing labels" /></a><figcaption>Saved-key placeholders do not reveal stored values. Example service names need a shared network.</figcaption></figure>
 
-1. Enter the Prowlarr and Sonarr **base URLs** and their separate API keys.
+1. Enter the Prowlarr and Sonarr **base URLs** and their separate API keys. A base URL is the app's address, such as `http://sonarr:8989`, without a page path like `/settings/general`. Use the addresses from the [installation guide]({{ '/installation/#networking' | relative_url }}) that match your setup.
 2. Enter the **Proxy base URL** reachable from Sonarr. Omit `/manager/` and `/api`.
 3. Leave **Feed API key** blank to keep the persistent generated key. For manual Torznab setup, set a known unique key privately instead.
 4. For Standard-numbered anime, enter existing tag labels under **Series routing**; otherwise leave them blank for Series Type routing.
@@ -25,15 +27,19 @@ In **Prowlarr / Settings / General**, find **Security / API Key**. Copy it priva
 
 Blank key inputs keep saved values. Keys are never returned to the browser. Nonempty environment values are read-only and take precedence.
 
-## 3. Preserve the Direct Prowlarr Link
+## 3. Keep Your Existing Prowlarr Connection
 
 <figure><a href="{{ '/assets/screenshots/prowlarr-sonarr-app.jpg' | relative_url }}"><img src="{{ '/assets/screenshots/prowlarr-sonarr-app.jpg' | relative_url }}" alt="Prowlarr Sonarr application editor with synthetic URLs and key" /></a><figcaption>The original application stays intact. Discovery reads sources; it does not write Prowlarr applications or indexers.</figcaption></figure>
 
 Use **Prowlarr / Settings / Apps** for the normal connection. Its API key is Sonarr's key. The Prowlarr Server URL must be reachable from Sonarr; the Sonarr Server URL must be reachable from Prowlarr. Browser URLs may differ.
 
-Full Sync can overwrite manual edits to Prowlarr-owned Sonarr indexers. The proxy only syncs its own mapped entries. Raw results are not filtered and can appear beside rewritten copies. See [Prowlarr's official setup guide](https://wiki.servarr.com/prowlarr/quick-start-guide).
+You do not need to remove this connection. Prowlarr continues managing the search entries it added to Sonarr; the proxy manages only its own entries. This means an original result can appear alongside a version changed by the proxy's rules. The original result is not filtered by those rules.
 
-## Compose Equivalent
+If Prowlarr uses **Full Sync**, it may overwrite manual edits to the Sonarr entries it manages. Make changes to those entries through Prowlarr instead. See [Prowlarr's official setup guide](https://wiki.servarr.com/prowlarr/quick-start-guide).
+
+## Optional: Enter Connections in Compose
+
+If you prefer setting connections in `.env` instead of the Settings page, the Compose example already supports these variables. This is optional; you do not need to use both methods.
 
 ```yaml
 environment:

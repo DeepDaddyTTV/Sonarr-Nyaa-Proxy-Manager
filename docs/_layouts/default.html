@@ -3,13 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#070d16" />
+    <meta name="theme-color" content="#171818" />
     <meta name="description" content="{{ page.description | default: site.description | escape }}" />
     <title>{{ page.title | escape }} | Sonarr Proxy Manager</title>
     <link rel="icon" href="{{ '/assets/electronic.png' | relative_url }}" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
     <link rel="stylesheet" href="{{ '/assets/wiki.css' | relative_url }}?v={{ site.time | date: '%s' }}" />
     <script>
       try { document.documentElement.dataset.theme = localStorage.getItem('sonarr-proxy-manager.wiki.theme') === 'light' ? 'light' : 'dark'; } catch {}
@@ -18,7 +15,7 @@
   <body>
     <a class="skip-link" href="#guide-content">Skip to guide</a>
     <header class="topbar">
-      <a class="brand" href="{{ '/' | relative_url }}"><span class="brand-mark" aria-hidden="true"></span><span><strong>Sonarr Proxy Manager</strong><small>DOCUMENTATION</small></span></a>
+      <a class="brand" href="{{ '/' | relative_url }}" aria-label="Sonarr Proxy Manager documentation"><span class="brand-symbol" aria-hidden="true"><span class="brand-mark"></span></span><span><strong>Sonarr Proxy</strong><small>Manager / Documentation</small></span></a>
       <div class="topbar-actions">
         <a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager">GitHub</a>
         <a class="support-link" href="https://buymeacoffee.com/deepdaddyttv">Buy Me a Coffee</a>
@@ -34,11 +31,11 @@
           <a href="{{ chapter.path | relative_url }}" {% if page.url == chapter.path %}class="active" aria-current="page"{% endif %}><span>{{ chapter.number }}</span>{{ chapter.title }}</a>
           {% endfor %}
         </nav>
-        <div class="sidebar-card"><p class="eyebrow">QUICK START</p><strong>One proxy. Separate feeds.</strong><p>Port <code>8787</code><br />Manager <code>/manager/</code></p><a href="{{ '/installation/' | relative_url }}">Docker setup &rarr;</a></div>
-        <p class="sidebar-note">Public image.<br />Keep your installation private.</p>
+        <div class="sidebar-card"><p class="eyebrow">GET STARTED</p><strong>Set up the app with Docker.</strong><p>The installation guide explains what to install, which files to create, and how to open the manager.</p><a href="{{ '/installation/' | relative_url }}">Installation guide &rarr;</a></div>
+        <p class="sidebar-note">Run it on your computer or home server. You don't need to open ports on your internet router.</p>
       </aside>
       <main class="docs-main" id="guide-content">
-        <header class="docs-header"><p class="eyebrow">SONARR PROXY MANAGER / FIELD GUIDE</p><h1>{{ page.title | escape }}</h1><p>{{ page.description | default: site.description | escape }}</p></header>
+        <header class="docs-header"><p class="eyebrow">PROJECT GUIDE</p><h1>{{ page.title | escape }}</h1><p>{{ page.description | default: site.description | escape }}</p></header>
         <div class="reading-layout">
           <article class="docs-content">{{ content }}</article>
           <nav class="page-toc" id="pageToc" aria-label="On this page"><p class="eyebrow">ON THIS PAGE</p></nav>

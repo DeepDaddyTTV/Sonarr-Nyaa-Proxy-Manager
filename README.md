@@ -456,7 +456,7 @@ Environment variables (defaults apply when omitted):
 | `REQUEST_TIMEOUT_SECONDS` | `20` | Outbound request timeout. |
 | `SONARR_CONFIG_PATH` | `/app/sonarr_proxy_config.json` | Optional legacy JSON configuration file path. |
 
-The manager session cookie is HTTP-only, same-site, and expires after 12 hours. Use an untracked environment file for credentials; never commit real credentials. Direct Docker secret-file / *_FILE loading is not currently implemented.
+The manager session cookie is HTTP-only, same-site, and expires after 12 hours. Keep login details and API keys in your private `.env` file or enter connections through Settings; do not upload those files to GitHub. The app reads credentials directly from environment variables, not from secret-file variables such as `PROWLARR_API_KEY_FILE`. For backup instructions, see [Saving and backing up your settings](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/#saving-and-backing-up-your-settings).
 
 ## Endpoints
 

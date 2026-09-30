@@ -1,9 +1,11 @@
 ---
 layout: default
 title: Anime and TV Routing
-description: Keep Standard episode ordering and use Sonarr tags to choose proxy feeds.
+description: Choose which proxy search entries Sonarr uses for anime and TV series.
 permalink: /routing/
 ---
+
+A **tag** is a label you assign to a series in Sonarr. This setup uses labels such as `anime` and `tv` to choose the appropriate proxy feed; the names are examples, and you can use labels you already have. It does not change episode numbering or the series' type.
 
 ## Standard Numbering Works
 
