@@ -10,7 +10,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="{{ '/assets/wiki.css' | relative_url }}" />
+    <link rel="stylesheet" href="{{ '/assets/wiki.css' | relative_url }}?v={{ site.time | date: '%s' }}" />
     <script>
       try { document.documentElement.dataset.theme = localStorage.getItem('sonarr-proxy-manager.wiki.theme') === 'light' ? 'light' : 'dark'; } catch {}
     </script>
@@ -46,6 +46,6 @@
         <footer class="guide-footer"><span>SONARR PROXY MANAGER</span><a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager/blob/main/LICENSE">GPLv3</a><a href="https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager">Source &amp; issues</a><a href="https://buymeacoffee.com/deepdaddyttv">Support the project</a></footer>
       </main>
     </div>
-    <script src="{{ '/assets/wiki.js' | relative_url }}" defer></script>
+    <script src="{{ '/assets/wiki.js' | relative_url }}?v={{ site.time | date: '%s' }}" defer></script>
   </body>
 </html>
