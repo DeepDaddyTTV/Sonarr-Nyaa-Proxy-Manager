@@ -18,12 +18,32 @@ jobs:
         with:
           python-version: '3.13'
       - name: Test proxy and manager
-        run: python -m unittest discover -q
+        run: |
+          pip install -r requirements-mcp.txt
+          python -m unittest discover -q
       - name: Check manager scripts
         run: |
           node --check app.js
           node --check auth.js
           node --check site-icon.js
+      - name: Build and smoke-test before publishing
+        run: |
+          export AUTH_USERNAME=ci-user AUTH_PASSWORD=ci-password
+          for example in examples/compose.yaml examples/compose.desktop-native.yaml examples/compose.linux-native.yaml; do
+            docker compose -f "$example" config --quiet
+          done
+          docker build -t sonarr-proxy-manager:ci .
+          docker run --rm -e MCP_AUTH_USERNAME=ci-user -e MCP_AUTH_PASSWORD=ci-password sonarr-proxy-manager:ci python -c 'from mcp_server import create_server; create_server(); print("MCP initialized")'
+          docker run -d --name proxy-ci-smoke -p 127.0.0.1:8787:8787 -e AUTH_USERNAME=ci-user -e AUTH_PASSWORD=ci-password sonarr-proxy-manager:ci
+          trap 'docker rm -f proxy-ci-smoke >/dev/null' EXIT
+          for attempt in $(seq 1 20); do
+            if curl --fail --silent http://127.0.0.1:8787/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs proxy-ci-smoke
+          exit 1
       - uses: docker/login-action@v4
         with:
           registry: ghcr.io

@@ -5,7 +5,11 @@ LABEL org.opencontainers.image.source="https://github.com/DeepDaddyTTV/Sonarr-Pr
     org.opencontainers.image.description="Dockerized Torznab search proxy with a responsive Sonarr rule manager."
 
 WORKDIR /app
+COPY requirements-mcp.txt ./
+RUN pip install --no-cache-dir -r requirements-mcp.txt \
+    && useradd --system --uid 10001 --create-home proxy
 COPY nyaa_season_proxy.py nyaa_proxy_runtime_patch.py manager_server.py proxy_integrations.py ./
+COPY mcp_server.py ./
 COPY index.html login.html styles.css app.js auth.js site-icon.js ./
 COPY assets/icons ./assets/icons
 COPY LICENSE ./LICENSE

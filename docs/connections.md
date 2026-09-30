@@ -19,7 +19,7 @@ In **Prowlarr / Settings / General**, find **Security / API Key**. Copy it priva
 
 <figure><a href="{{ '/assets/screenshots/proxy-settings.jpg' | relative_url }}"><img src="{{ '/assets/screenshots/proxy-settings.jpg' | relative_url }}" alt="Full proxy Settings tab including Anime and TV routing labels" /></a><figcaption>Saved-key placeholders do not reveal stored values. Example service names need a shared network.</figcaption></figure>
 
-1. Enter the Prowlarr and Sonarr **base URLs** and their separate API keys. A base URL is the app's address, such as `http://sonarr:8989`, without a page path like `/settings/general`. Use the addresses from the [installation guide]({{ '/installation/#networking' | relative_url }}) that match your setup.
+1. Enter the Prowlarr and Sonarr **base URLs** and their separate API keys. A base URL is the app's address, such as `http://sonarr:8989`, without a page path like `/settings/general`. Use the address table for your setup: [Windows]({{ '/installation/windows/' | relative_url }}), [macOS]({{ '/installation/macos/' | relative_url }}), or [Linux]({{ '/installation/linux/' | relative_url }}). Keep any URL base you configured, such as `/sonarr`.
 2. Enter the **Proxy base URL** reachable from Sonarr. Omit `/manager/` and `/api`.
 3. Leave **Feed API key** blank to keep the persistent generated key. For manual Torznab setup, set a known unique key privately instead.
 4. For Standard-numbered anime, enter existing tag labels under **Series routing**; otherwise leave them blank for Series Type routing.

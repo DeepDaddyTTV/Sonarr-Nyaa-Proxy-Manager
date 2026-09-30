@@ -19,7 +19,7 @@ from urllib.parse import urlparse, parse_qs
 
 import nyaa_season_proxy as proxy
 from nyaa_proxy_runtime_patch import install
-from proxy_integrations import IntegrationStore, atomic_json
+from proxy_integrations import IntegrationStore, atomic_json, configuration_etag, check_revision, ConfigurationConflict
 
 
 ROOT = Path(__file__).resolve().parent
@@ -289,6 +289,7 @@ def write_json(handler: object, status: HTTPStatus, data: object) -> None:
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(payload)))
     handler.send_header("Cache-Control", "no-store")
+    handler.send_header("ETag", configuration_etag(data))
     handler.send_header("X-Content-Type-Options", "nosniff")
     handler.end_headers()
     handler.wfile.write(payload)
@@ -466,10 +467,10 @@ def install_manager_routes() -> None:
         try:
             payload = read_request_json(self)
             if path == "/manager/api/settings":
-                config = INTEGRATIONS.save_settings(payload)
+                config = INTEGRATIONS.save_settings(payload, expected_revision=self.headers.get("If-Match"))
                 apply_connection_settings()
             elif path == "/manager/api/feeds":
-                config = INTEGRATIONS.save_feeds(payload)
+                config = INTEGRATIONS.save_feeds(payload, expected_revision=self.headers.get("If-Match"))
                 for feed in INTEGRATIONS.feeds():
                     target = feed_rule_path(feed["id"])
                     if not target.exists():
@@ -477,13 +478,18 @@ def install_manager_routes() -> None:
             else:
                 with RULES_LOCK:
                     feed_id = parse_qs(urlparse(self.path).query).get("feed", [""])[0]
+                    current = read_feed_rules(feed_id) if feed_id else RULES_CONFIG
+                    check_revision(self.headers.get("If-Match"), current)
                     config = normalize_rules_config(payload, strict=True)
-                    validate_lock_transitions(read_feed_rules(feed_id) if feed_id else RULES_CONFIG, config)
+                    validate_lock_transitions(current, config)
                     if feed_id:
                         atomic_json(feed_rule_path(feed_id), config)
                     else:
                         write_rules_config(config)
                         RULES_CONFIG = config
+        except ConfigurationConflict as error:
+            write_json(self, HTTPStatus.CONFLICT, {"error": str(error)})
+            return
         except (OSError, ValueError, UnicodeDecodeError) as error:
             write_json(self, HTTPStatus.BAD_REQUEST, {"error": str(error)})
             return

@@ -1,35 +1,52 @@
 ---
 layout: default
 title: Installation
-description: What you need, how to start the app, and where your settings are saved.
+description: Choose your operating system and the way your Arr apps are installed.
 permalink: /installation/
 ---
 
-## Before You Start
+## Choose Your Setup
 
-- Install Docker Desktop on Windows or macOS, or Docker Engine on your Linux server. Docker runs the app in a container, so you do not need to install Python yourself.
-- Have Sonarr and its download client working first. This app changes search results; it does not download or import files itself.
-- For the setup shown in this guide, have Prowlarr working with the indexers you want to use. Direct Nyaa also works without Prowlarr; Jackett and other Torznab-compatible sources are additional options.
-- Use addresses that let Sonarr, Prowlarr, and the proxy connect to each other. The examples below cover a shared Docker network and apps installed directly on a computer.
+The proxy runs in Docker. Sonarr and Prowlarr can stay installed directly on your computer, or run in their own Docker containers. Choose the guide for the **computer that will run the proxy**, not the device you use to browse its UI.
 
-You do not need a domain name, Nyaa account, VPN, or an open port on your internet router. You can start by opening the manager on the same computer where Docker runs.
+| Computer | Native Sonarr/Prowlarr | Dockerized Sonarr/Prowlarr |
+| --- | --- | --- |
+| Windows / Docker Desktop | [Windows Option A]({{ '/installation/windows/#option-a-native-windows-arr-apps' | relative_url }}) | [Windows Option B]({{ '/installation/windows/#option-b-docker-desktop-arr-apps' | relative_url }}) |
+| macOS / Docker Desktop | [macOS Option A]({{ '/installation/macos/#option-a-native-mac-arr-apps' | relative_url }}) | [macOS Option B]({{ '/installation/macos/#option-b-docker-desktop-arr-apps' | relative_url }}) |
+| Linux / Docker Engine | [Linux Option B]({{ '/installation/linux/#option-b-native-linux-arr-services' | relative_url }}) | [Linux Option A]({{ '/installation/linux/#option-a-dockerized-arr-apps' | relative_url }}) |
 
-## Install with Docker Compose
+Have Sonarr and its download client working first. The proxy changes search results; it does not download or import files itself. Prowlarr is used for the multi-indexer setup in this guide. Direct Nyaa also works without Prowlarr; Jackett and other Torznab sources are additional options.
 
-Docker Compose starts a container from a configuration file. The example `compose.yaml` tells Docker which app to run, how to open it, and where to keep its settings. The `.env` file holds your login details and optional connection settings.
+Radarr can run alongside this setup, but this project does not integrate with Radarr or filter movie searches. Leave its existing configuration and Prowlarr connection unchanged.
 
-1. Create a folder for the app on the computer running Docker.
-2. Download [compose.yaml]({{ '/assets/examples/compose.yaml' | relative_url }}) and [env.example]({{ '/assets/examples/env.example' | relative_url }}) into that folder.
-3. Rename `env.example` to `.env`. Open it in a text editor and set `AUTH_USERNAME` and `AUTH_PASSWORD` to the login you want to use for the manager. Leave the Sonarr and Prowlarr connection fields blank for now; you can fill them in through the app.
-4. Create the Docker network below; the supplied Compose file needs it even when Sonarr and Prowlarr are installed outside Docker. If those apps also run in Docker, attach them to this network as described next. Otherwise, use the corresponding [networking example](#networking) for their addresses.
+You do not need a domain name, Nyaa account, VPN, host Python installation, or an open port on your internet router.
 
-Open a terminal in the folder you created and run this once. If a network named `sonarr-net` already exists, you can reuse it and skip this command:
+## Download the Right Files
+
+Docker Compose starts the app from a configuration file. The `compose.yaml` file describes the container and network; `.env` stores your chosen login and optional connection settings. The OS guides explain how to save and use them.
+
+| Example | When to use it |
+| --- | --- |
+| [Desktop native-apps Compose]({{ '/assets/examples/compose.desktop-native.yaml' | relative_url }}) | Windows/macOS Docker Desktop, with native Arr apps on the host |
+| [Docker-apps Compose]({{ '/assets/examples/compose.yaml' | relative_url }}) | Arr containers on a shared Docker network, on any of the three OSes |
+| [Linux native-apps Compose]({{ '/assets/examples/compose.linux-native.yaml' | relative_url }}) | Linux Engine, with native Arr services on the same host |
+| [Environment template]({{ '/assets/examples/env.example' | relative_url }}) | All examples; rename to `.env` and set your manager login |
+
+Save **one** Compose example as `compose.yaml`; these are alternatives, not files to combine. Keep connection values blank in `.env` if you want to edit them through **Settings**. Nonempty environment values take priority and their fields become read-only in the app. After changing `.env`, run `docker compose up -d` again.
+
+The supplied files start only the proxy. They do not reinstall or replace your Arr apps. They use a named Docker volume for settings, so you do not need Windows drive paths or macOS/Linux folder permissions for `/data`.
+
+## Attach Existing Docker Apps
+
+This step is **only** for the Docker-apps example. Native-apps examples do not need `sonarr-net`.
+
+Create the shared network once, unless it already exists:
 
 ```sh
 docker network create sonarr-net
 ```
 
-**Only if Sonarr and Prowlarr also run in Docker:** add `sonarr-net` to their existing Compose files so all three apps can communicate. Keep their existing images, ports, volumes, and networks. This is an example of the **network additions**, not a replacement for their complete files:
+Add the network to your existing Sonarr and Prowlarr Compose files, keeping their current images, ports, volumes, and networks. This is a **network addition**, not a complete replacement stack:
 
 ```yaml
 services:
@@ -47,42 +64,22 @@ networks:
     external: true
 ```
 
-Here, `default` represents their original network; keep any other networks your installation already uses. Apply the changes to each Arr app with `docker compose up -d` in its own folder. This may briefly restart those containers.
+Here, `default` represents their original network; if yours has another name, retain that name instead. If the apps are in separate Compose projects, add the relevant service and network entries to each one. Apply each app's change from its own folder with `docker compose up -d`; this may briefly recreate those containers. Start the proxy from its own folder afterward.
 
-Then run the following in the **proxy's folder**:
+If your container manager owns those Compose files, add the network through that manager instead. Do not create a second copy of your existing Arr containers.
 
-```sh
-docker compose up -d
-```
+## Home Network Access
 
-Open `http://127.0.0.1:8787/manager/` in a browser on that same computer and sign in with the username and password from `.env`. The example starts only the proxy; it does not install Sonarr, Prowlarr, or a download client.
+The examples open the manager at `http://127.0.0.1:8787/manager/` only on the Docker computer. For a headless Linux server, the Linux guide includes an SSH tunnel.
 
-When you reach the proxy's Settings page, these addresses work if the containers share `sonarr-net` and use the service names shown:
+If you want access from another trusted device, the change depends on the example:
 
-| Connection | Shared-network base URL |
-| --- | --- |
-| Prowlarr, as the proxy sees it | `http://prowlarr:9696` |
-| Sonarr, as the proxy sees it | `http://sonarr:8989` |
-| Proxy, as Sonarr sees it | `http://sonarr-proxy-manager:8787` |
+- **Desktop native or shared-network Compose:** replace `"127.0.0.1:8787:8787"` with `"${HOST_LAN_IP}:8787:8787"`. Add `HOST_LAN_IP=your-server-address` to `.env`, replacing the placeholder with the Docker computer's home-network address.
+- **Linux native host-network Compose:** change `HOST: 127.0.0.1` to the host's specific LAN/private-VPN address. There is no port map in host mode. Update the **Proxy base URL** in Settings to that reachable address.
 
-Connection fields left blank in `.env` can be changed in **Settings**. If you put a connection value in `.env`, that value takes priority and its field becomes read-only in the app. After editing `.env`, run `docker compose up -d` again to apply the change.
+Your browser and remote Sonarr can then use `http://your-server-address:8787`. Allow only trusted LAN/VPN clients through the host firewall; do not forward port 8787 on your internet router. A browser address is not necessarily the address containers should use: keep Docker service names for apps on the shared network.
 
-## Networking
-
-**All three apps run in Docker on one computer:** the shared network lets the containers communicate using their service names. Keep `127.0.0.1:8787:8787` in the proxy's Compose file; this makes the browser manager accessible only from that computer. Sonarr reaches it through the Docker network instead.
-
-**Sonarr and Prowlarr are installed directly on the computer running Docker Desktop:** enter `http://host.docker.internal:8989` for Sonarr and `http://host.docker.internal:9696` for Prowlarr in the proxy's Settings. Sonarr on that computer can reach the proxy at `http://127.0.0.1:8787`. Do not use `localhost` for the Arr addresses inside the proxy: inside a container, that name refers to the container itself, not your computer.
-
-**Linux, with Sonarr or Prowlarr installed outside Docker:** if `host.docker.internal` does not resolve, add this under the proxy service in `compose.yaml`:
-
-```yaml
-extra_hosts:
-  - "host.docker.internal:host-gateway"
-```
-
-**You need access from another computer:** replace the `127.0.0.1:8787:8787` port entry with `"${HOST_LAN_IP}:8787:8787"`. Add `HOST_LAN_IP=your-server-address` to `.env`, replacing `your-server-address` with that computer's address on your home network. Sonarr and your browser can then use `http://your-server-address:8787`. Configure the computer's firewall to allow only trusted devices on your home network or VPN, and do not forward port 8787 on your internet router.
-
-The **Proxy base URL** must be an address Sonarr can reach. Its environment variable is named `PROXY_PUBLIC_URL`, but that does not mean you need to put the app on the internet. If you already use a private HTTPS reverse proxy, you can use its address and set `AUTH_COOKIE_SECURE=true`; leave that setting `false` for the HTTP examples above.
+The **Proxy base URL** is the address Sonarr uses to contact the proxy. Its variable is named `PROXY_PUBLIC_URL`, but it does not require internet exposure. If you already use a private HTTPS reverse proxy, use its reachable address and set `AUTH_COOKIE_SECURE=true`. Leave this setting `false` for the HTTP examples.
 
 ## Image Tags and Updates
 
@@ -92,7 +89,9 @@ The **Proxy base URL** must be an address Sonarr can reach. Its environment vari
 | `dev` | Rolling testing installation |
 | `build-42` | Pin workflow build number 42, if that successful build exists |
 
-`latest` and `dev` currently move together after successful main builds, not separate stable/beta release tracks. Find the successful run number in the [publish workflow](https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager/actions/workflows/publish-dev.yml), not a commit SHA. Set `IMAGE_TAG=build-<number>` to pin it. Keep your testing Compose on `dev`.
+`latest` and `dev` currently move together after successful main builds, not separate stable/beta release tracks. Find a successful run number in the [publish workflow](https://github.com/DeepDaddyTTV/Sonarr-Proxy-Manager/actions/workflows/publish-dev.yml), not a commit SHA. Set `IMAGE_TAG=build-<number>` to pin it. Keep your testing Compose on `dev`.
+
+Run these commands from the proxy folder on any OS:
 
 ```sh
 docker compose pull sonarr-proxy-manager
@@ -101,12 +100,12 @@ docker compose up -d sonarr-proxy-manager
 
 ## Saving and Backing Up Your Settings
 
-The app stores its settings in a folder called `/data` inside the container. The supplied Compose file keeps this folder in a Docker volume, so your settings remain when you update the container. Keep the same volume when updating; deleting it deletes the saved settings.
+The app stores settings in `/data` inside the container. Each example keeps this folder in a Docker volume, so settings remain when you update. Keep the same project folder and volume; deleting the volume, including with `docker compose down -v`, deletes saved settings.
 
-Use **Export configuration** in the manager to download the rules for the selected profile. This is useful for saving or sharing rules, but it does not include your API keys, connections, or other profiles. To make a complete backup, also back up the Docker data volume and your `.env` file using your usual Docker backup method.
+**Export configuration** downloads rules for the selected profile, not API keys, connections, or other profiles. For a complete backup, also back up the Docker data volume and your `.env` file using your usual Docker backup method.
 
-These backups include API keys, which let the app access Sonarr and Prowlarr. Treat them like passwords: keep the backup somewhere only you can access, and do not upload it to a public GitHub repository or include it in a support post. When sharing a problem, remove keys and passwords from screenshots or configuration examples.
+API keys let the app access Sonarr and Prowlarr. Treat backups like passwords: keep them somewhere only you can access, and remove keys/passwords from screenshots or configuration shared for support.
 
-For advanced startup configuration, the optional [feed override]({{ '/assets/examples/compose.feeds.yaml' | relative_url }}) defines feeds in Compose instead of the app. You can skip this for the normal setup.
+The optional [feed override]({{ '/assets/examples/compose.feeds.yaml' | relative_url }}) defines feeds in Compose rather than the UI. Skip it for normal setup.
 
 Next: [Connect Sonarr and Prowlarr]({{ '/connections/' | relative_url }}).

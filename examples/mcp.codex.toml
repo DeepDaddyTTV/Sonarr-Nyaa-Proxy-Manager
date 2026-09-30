@@ -1,0 +1,4 @@
+[mcp_servers.sonarr-proxy-manager]
+command = "docker"
+args = ["run", "--rm", "-i", "--env-file", "/absolute/path/to/mcp.env", "ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest", "python", "mcp_server.py"]
+tool_timeout_sec = 90

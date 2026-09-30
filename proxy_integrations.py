@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 import os
 import re
@@ -24,6 +25,20 @@ CONNECTION_ENV = {
 }
 ROUTING_ENV = {"animeTag": "SONARR_ANIME_TAG", "tvTag": "SONARR_TV_TAG"}
 ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
+
+
+class ConfigurationConflict(ValueError):
+    """A client attempted to overwrite a newer configuration."""
+
+
+def configuration_etag(payload: object) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return '"' + hashlib.sha256(encoded).hexdigest() + '"'
+
+
+def check_revision(expected: str | None, current: object) -> None:
+    if expected is not None and expected != configuration_etag(current):
+        raise ConfigurationConflict("Configuration changed; read it again before saving.")
 
 
 def validate_url(value: object) -> str:
@@ -159,10 +174,11 @@ class IntegrationStore:
             "routingManaged": {field: bool(os.environ.get(variable)) for field, variable in ROUTING_ENV.items()},
         }
 
-    def save_settings(self, payload: object) -> dict:
+    def save_settings(self, payload: object, *, expected_revision: str | None = None) -> dict:
         if not isinstance(payload, dict) or not isinstance(payload.get("connections"), dict):
             raise ValueError("connections must be an object")
         with self.sync_lock, self.lock:
+            check_revision(expected_revision, self.public_settings())
             candidate = copy.deepcopy(self.data)
             routing = payload.get("routing", {})
             if not isinstance(routing, dict):
@@ -300,10 +316,12 @@ class IntegrationStore:
             seen.add(feed_id)
         return normalized
 
-    def save_feeds(self, payload: object) -> list[dict]:
+    def save_feeds(self, payload: object, *, expected_revision: str | None = None) -> list[dict]:
         if os.environ.get("PROXY_FEEDS_JSON"):
             raise ValueError("PROXY_FEEDS_JSON manages feeds; remove it to edit feeds in the UI")
         with self.sync_lock, self.lock:
+            if expected_revision is not None:
+                check_revision(expected_revision, self.public_feeds())
             feeds = self.normalize_feeds(payload)
             candidate = copy.deepcopy(self.data)
             candidate["feeds"] = feeds

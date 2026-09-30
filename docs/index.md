@@ -12,11 +12,14 @@ Connect the manager to Prowlarr, choose the sources you want to search, and crea
 
 ## Start Here
 
+Choose your installation guide: [Windows]({{ '/installation/windows/' | relative_url }}), [macOS]({{ '/installation/macos/' | relative_url }}), or [Linux]({{ '/installation/linux/' | relative_url }}). Each separates native Arr apps from Dockerized ones.
+
 <div class="chapter-grid">
   <a href="{{ '/installation/' | relative_url }}"><span>01 / INSTALL</span><strong>Install with Docker</strong><p>Download the example files and start the app.</p></a>
   <a href="{{ '/connections/' | relative_url }}"><span>02 / CONNECT</span><strong>Connect Sonarr and Prowlarr</strong><p>Find their API keys and enter them in Settings.</p></a>
   <a href="{{ '/feeds/' | relative_url }}"><span>03 / SEARCH</span><strong>Add search entries to Sonarr</strong><p>Choose which sources each entry should search.</p></a>
   <a href="{{ '/rules/' | relative_url }}"><span>04 / CUSTOMIZE</span><strong>Add your rules</strong><p>Prefer releases, exclude titles, or change title text.</p></a>
+  <a href="{{ '/mcp/' | relative_url }}"><span>05 / AI TOOLS</span><strong>Connect Codex or Claude</strong><p>Use MCP to read or edit rules and saved settings.</p></a>
 </div>
 
 ## How It Works

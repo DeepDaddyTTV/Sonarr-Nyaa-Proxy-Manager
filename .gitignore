@@ -2,6 +2,7 @@
 *.log
 .env
 .env.local
+mcp.env
 __pycache__/
 .playwright-cli/
 .playwright/

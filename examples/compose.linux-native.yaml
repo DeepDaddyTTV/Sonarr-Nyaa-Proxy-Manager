@@ -1,0 +1,26 @@
+# Linux Docker Engine only. Host networking reaches native apps on loopback.
+services:
+  sonarr-proxy-manager:
+    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    network_mode: host
+    environment:
+      HOST: 127.0.0.1
+      PORT: "8787"
+      AUTH_USERNAME: ${AUTH_USERNAME:?Set AUTH_USERNAME}
+      AUTH_PASSWORD: ${AUTH_PASSWORD:?Set AUTH_PASSWORD}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
+      SONARR_URL: ${SONARR_URL:-}
+      SONARR_API_KEY: ${SONARR_API_KEY:-}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      PROXY_PUBLIC_URL: ${PROXY_PUBLIC_URL:-}
+      PROXY_API_KEY: ${PROXY_API_KEY:-}
+      SONARR_ANIME_TAG: ${SONARR_ANIME_TAG:-}
+      SONARR_TV_TAG: ${SONARR_TV_TAG:-}
+      PROWLARR_DISCOVER_ON_START: ${PROWLARR_DISCOVER_ON_START:-false}
+      UPSTREAM_INDEXERS_JSON: "${UPSTREAM_INDEXERS_JSON:-[]}"
+    volumes:
+      - sonarr-proxy-manager-data:/data
+volumes:
+  sonarr-proxy-manager-data:

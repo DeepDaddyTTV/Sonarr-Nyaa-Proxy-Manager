@@ -11,12 +11,16 @@ Sonarr Proxy Manager is a Dockerized Torznab proxy for Sonarr. Connect Prowlarr 
 ### Project Wiki
 
 - [Installation and Docker Compose](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/)
+- [Windows: native apps or Docker Desktop](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/windows/)
+- [macOS: native apps or Docker Desktop](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/macos/)
+- [Linux: Docker Engine or native Arr services](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/linux/)
 - [Connect Sonarr and Prowlarr](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/connections/)
 - [Create feeds and configure Sonarr](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/feeds/)
 - [Anime / TV routing with Standard numbering](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/routing/)
 - [Built-in and custom rules, including LimeTorrents](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/rules/)
 - [XML, environment variables, and API reference](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/reference/)
 - [Troubleshooting](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/troubleshooting/)
+- [AI / MCP setup for Codex and Claude](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/mcp/)
 
 ## What It Does
 
@@ -36,11 +40,15 @@ The browser manager is served at `/manager/`, with a **Settings** tab for API co
 
 No host Python installation or Nyaa account is required. Optional Sonarr URL and API key settings enable series metadata lookup when requests identify a series by TVDB or IMDb ID.
 
+Radarr can coexist with this setup, but the proxy integrates with **Sonarr**, not Radarr movie searches. Leave Radarr and its Prowlarr connection unchanged.
+
 ## Quick Start
 
 Each successful main-branch build publishes three image tags: `dev` and `latest` both point to the newest build, while `build-<number>` pins one build. Use `latest` for normal installs, keep a personal testing stack on `dev`, or replace `<number>` with a GitHub Actions build number to pin an exact build without looking up a commit SHA.
 
 Create a Docker network shared with Sonarr if you do not already have one:
+
+**The inline example below is for Dockerized Arr apps.** For native Windows/macOS apps, use [compose.desktop-native.yaml](examples/compose.desktop-native.yaml), which does not need a shared network. For native Linux services, use [compose.linux-native.yaml](examples/compose.linux-native.yaml). Start with the [OS-specific guide](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/) if you are unsure which to choose. These examples start only the proxy, not the Arr apps.
 
 ```sh
 docker network create sonarr-net
@@ -89,7 +97,7 @@ AUTH_USERNAME=proxy-admin
 AUTH_PASSWORD=replace-with-a-long-unique-password
 AUTH_COOKIE_SECURE=false
 PROXY_API_KEY=
-PROXY_PUBLIC_URL=http://sonarr-proxy-manager:8787
+PROXY_PUBLIC_URL=
 SONARR_URL=
 SONARR_API_KEY=
 PROWLARR_URL=
@@ -100,7 +108,7 @@ PROWLARR_DISCOVER_ON_START=false
 UPSTREAM_INDEXERS_JSON=[]
 ```
 
-Download the [Compose example](examples/compose.yaml) and [environment template](examples/env.example). Leave connection variables blank to manage them in Settings, or populate them in your private `.env`. For native Arr installations or Linux host networking, follow the [networking variants](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/#networking).
+Download the [Docker-apps Compose example](examples/compose.yaml) and [environment template](examples/env.example). Leave connection variables blank to manage them in Settings, or populate them in your private `.env`. The separate [Windows](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/windows/), [macOS](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/macos/), and [Linux](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/installation/linux/) guides show the correct URLs for native, Dockerized, and mixed setups.
 
 Nyaa is always available as the built-in source. The optional JSON array adds Torznab-compatible upstreams; use the API URL and key shown by that indexer (for example, copy the Torznab URL from Prowlarr and make sure its hostname is reachable on the proxy's Docker network). `id` must be unique and use letters, numbers, `_` or `-`; `name` is shown in the rule editor. `categories` is optional and limits the upstream query to Torznab category IDs. After changing the Compose environment, recreate the container; the configured names then appear in the custom-rule Indexer selector. Indexer credentials remain server-side and are never returned by the manager API. They are present in the container environment, so keep the Compose file and `.env` private.
 
@@ -474,16 +482,33 @@ The manager session cookie is HTTP-only, same-site, and expires after 12 hours. 
 | `/manager/login` | Manager sign-in page. |
 | `/health` | Basic health response. |
 
+## AI / MCP Integration
+
+The public image includes a **stdio MCP server** for Codex, Claude Code/Desktop, and other compatible local clients. It connects to the running manager through its authenticated API; it does not require a data-volume or Docker-socket mount. Follow the [MCP guide](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/mcp/) for OS-specific networking, client examples, and safe editing.
+
+Save [mcp.env.example](examples/mcp.env.example) privately as `mcp.env`, set your manager login and reachable URL, and configure the client to launch:
+
+```sh
+docker run --rm -i --env-file /absolute/path/to/mcp.env ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest python mcp_server.py
+```
+
+On Linux host-loopback setups, add `--network host` and use `http://127.0.0.1:8787` in `mcp.env`. Docker Desktop uses `http://host.docker.internal:8787`. There is no public `/mcp` HTTP endpoint in this release.
+
+Read-only is the default. Set `MCP_ALLOW_WRITES=true` to enable creating/editing custom rules, unlocking/editing built-ins, configuring feeds, changing saved connections/routing, and explicit Sonarr sync. Rule/feed edits require a current revision, preventing stale updates from replacing newer changes. Deletion, whole-profile import, key clearing, and Sonarr sync require an explicit confirmation argument; keep your AI client's human-approval prompts enabled too.
+
+Keys can be loaded from private `MCP_SONARR_API_KEY`, `MCP_PROWLARR_API_KEY`, and `MCP_PROXY_API_KEY` environment variables, never raw tool arguments or returned key values. Manager environment-controlled fields remain read-only. The public MCP cannot edit app code, run shell commands, deploy containers, change Compose, or grab releases. Use your own private development/deployment tools for app maintenance.
+
 ## Development and Images
 
 Run the tests and build locally:
 
 ```sh
+python -m pip install -r requirements-mcp.txt
 python -m unittest discover -q
 docker build -t sonarr-proxy-manager:dev .
 ```
 
-Every successful push to `main` runs tests, checks the manager scripts, and publishes these GitHub Container Registry tags:
+Use Python 3.10 or newer for MCP development. Every successful push to `main` runs tests, checks the manager scripts, smoke-tests the container, and publishes these GitHub Container Registry tags:
 
 - `ghcr.io/deepdaddyttv/sonarr-proxy-manager:latest`
 - `ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev`

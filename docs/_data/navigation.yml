@@ -1,8 +1,12 @@
 - {number: "00", title: Overview, path: /}
 - {number: "01", title: Installation, path: /installation/}
+- {number: "01a", title: Windows, path: /installation/windows/}
+- {number: "01b", title: macOS, path: /installation/macos/}
+- {number: "01c", title: Linux, path: /installation/linux/}
 - {number: "02", title: Connections, path: /connections/}
 - {number: "03", title: Feeds & Sonarr, path: /feeds/}
 - {number: "04", title: Anime / TV Routing, path: /routing/}
 - {number: "05", title: Custom Rules, path: /rules/}
 - {number: "06", title: XML & Configuration, path: /reference/}
 - {number: "07", title: Troubleshooting, path: /troubleshooting/}
+- {number: "08", title: AI / MCP Access, path: /mcp/}
