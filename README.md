@@ -15,7 +15,7 @@ The browser manager is served at `/manager/`, with a **Settings** tab for API co
 - Sonarr configured with a Torznab indexer.
 - Docker Engine or another OCI-compatible container runtime.
 - Outbound HTTPS access from the container to Nyaa.si and any configured upstream indexers.
-- A Docker network shared by Sonarr and this container.
+- Network reachability between Sonarr, the proxy, and any configured Prowlarr/Torznab upstreams. A shared Docker network is one option; native Arr installs can use reachable host ports.
 - A persistent `/data` volume.
 - `AUTH_USERNAME` and `AUTH_PASSWORD` for the browser manager.
 - A torrent download client already configured in Sonarr. This proxy finds and describes releases; Sonarr and its download client handle downloads.
@@ -119,7 +119,7 @@ By default, Sonarr uses the show's **Series Type** to choose the category field;
 
 If you organize anime with Sonarr tags and deliberately keep **Series Type = Standard**, open **Settings / Series routing**. Enter your existing Anime and TV tag labels (for example `anime` and `tv`), save, and sync feeds again. The manager resolves the existing tag IDs and restricts its own Sonarr entries to the appropriate tags. The Anime feed also gets regular category `5070`, so Standard-numbered anime searches reach it. Its Anime Categories remain `5070`; the TV feed still excludes that category.
 
-The proxy additionally checks the requested series' tags before contacting its upstreams, using Sonarr identifiers or an exact normalized main/alternate title. An anime-tagged series cannot use the TV feed even if it also has the TV tag. Unknown or ambiguously classified titles are rejected in tag mode. With a TV tag configured, untagged shows do not use the TV feed. If only an Anime tag is configured, the TV feed accepts known shows without that Anime tag. Tag and series metadata are cached for up to five minutes. Neither series types, existing series tags, episode ordering, nor the original Prowlarr entries are changed. Leave both labels empty and sync again to restore Series Type routing.
+The proxy additionally checks the requested series' tags before contacting its upstreams, using Sonarr identifiers or an exact normalized main/alternate title. An anime-tagged series cannot use the TV feed even if it also has the TV tag. Unknown or ambiguously classified titles are rejected in tag mode. Category-only requests without a show name or identifier are allowed for Sonarr's save-time indexer test; RSS stays disabled. With a TV tag configured, untagged shows do not use the TV feed. If only an Anime tag is configured, the TV feed accepts known shows without that Anime tag. Tag and series metadata are cached for up to five minutes. Neither series types, existing series tags, episode ordering, nor the original Prowlarr entries are changed. Leave both labels empty and sync again to restore Series Type routing.
 
 Compose equivalent:
 

@@ -279,6 +279,9 @@ class FeedHTTPTests(unittest.TestCase):
             self.assertEqual(self.titles(self.request("tv", "t=tvsearch&tvdbid=101&q=My+Show&season=1&ep=2&cat=5040")[1]), [])
             self.assertEqual(self.calls, [])
             self.assertEqual(series[0]["seriesType"], "standard")
+            # Sonarr validates a saved indexer with a category-only request.
+            self.request("anime", "t=tvsearch&cat=5070")
+            self.assertTrue(self.calls)
             self.series[:] = [{"title": "My Show", "tvdbId": 101, "seriesType": "standard", "tags": [5]}]
             self.assertEqual(len(self.titles(self.request("tv", "t=tvsearch&tvdbid=101&q=My+Show&season=1&ep=2&cat=5040")[1])), 1)
             self.calls.clear()

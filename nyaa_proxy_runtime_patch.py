@@ -509,7 +509,8 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None,
     def perform_search(self: object, params, season, episode, feed) -> None:
         series_year: Optional[int] = None
         tvdb_id = original_first(params, "tvdbid", "").strip()
-        if feed and (feed.get("animeTagId") or feed.get("tvTagId")):
+        identified_search = any(original_first(params, key, "").strip() for key in ("q", "tvdbid", "imdbid"))
+        if feed and identified_search and (feed.get("animeTagId") or feed.get("tvTagId")):
             imdb_id = original_first(params, "imdbid", "").strip().casefold()
             query = original_first(params, "q", "").strip()
             normalize = lambda text: " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
