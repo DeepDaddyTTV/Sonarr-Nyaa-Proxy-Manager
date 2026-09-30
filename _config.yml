@@ -1,0 +1,6 @@
+title: Sonarr Proxy Manager
+description: Torznab proxy for Sonarr with season and episode filtering.
+url: https://deepdaddyttv.github.io
+baseurl: /Sonarr-Proxy-Manager
+theme: jekyll-theme-cayman
+markdown: kramdown

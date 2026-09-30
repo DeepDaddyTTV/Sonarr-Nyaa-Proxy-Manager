@@ -1,46 +1,46 @@
 # Sonarr Proxy Manager
 
-Sonarr Proxy Manager is a Dockerized Torznab proxy for Nyaa.si with a small, authenticated rule manager. It normalizes release titles, distinguishes exact episodes from season packs, and returns filtered results to Sonarr.
+[Project guide / wiki](https://deepdaddyttv.github.io/Sonarr-Proxy-Manager/) · [Buy Me a Coffee](https://buymeacoffee.com/deepdaddyttv)
+
+Sonarr Proxy Manager is a Dockerized Torznab proxy that searches Nyaa.si for Sonarr. It expands searches, normalizes release titles, keeps episode results separate from season packs, and provides an authenticated web manager for built-in and custom matching rules.
 
 ## What It Does
 
-Sonarr sends indexer searches to the proxy. The proxy searches Nyaa.si, expands season and episode query variants, anchors results to the requested series, and separates episode searches from season-pack searches. Dual Audio releases are announced as Japanese and English. Accepted results use Nyaa's torrent download URL.
+Sonarr sends a Torznab search to `/api`. The proxy builds bounded query variants, searches Nyaa, checks that results belong to the requested series and season, and returns an RSS 2.0 feed containing Torznab metadata. Episode searches return only the requested episode; season searches filter out single episodes and partial ranges. Dual Audio releases are labeled as Japanese and English in both the title and Torznab language attributes.
 
-The manager at `/manager/` provides a searchable rule library. Built-in rules start locked; click a rule's lock to unlock its name, description, and enabled setting. Custom rules start unlocked and can prefer, exclude, rewrite, or annotate matching releases for all searches, episode scans, or season scans. Settings are stored in `/data/custom-rules.json` on the persistent volume.
-
-When upgrading from the earlier manager, built-in rules are locked once without changing their enabled settings or custom rules. Subsequent lock and unlock choices persist. Dark and light themes use the same icon masks with theme-specific colors.
+The browser rule manager is served at `/manager/`. Built-in rules are enabled and locked by default. A lock protects a rule's editable settings in the UI; unlock a rule to change its enabled state or display name and description. The actual matching behavior for each built-in rule is implemented by the proxy. Custom rules can prefer, exclude, rewrite, or annotate matching releases for all searches, episode searches, or season searches. Settings persist in `/data/custom-rules.json`.
 
 ## Requirements
 
 - Sonarr configured with a Torznab indexer.
 - Docker Engine or another OCI-compatible container runtime.
-- Network access from the proxy container to Nyaa.si over HTTPS.
-- A shared Docker network between Sonarr and the proxy so Sonarr can reach the proxy's TCP port `8787`.
-- A persistent `/data` volume for manager settings.
-- `AUTH_USERNAME` and `AUTH_PASSWORD` for access to the browser manager. Sonarr's Torznab API remains separate from manager authentication.
-- A torrent download client already configured in Sonarr. The proxy finds and describes releases; Sonarr and its download client handle downloads.
+- Outbound HTTPS access from the container to Nyaa.si.
+- A Docker network shared by Sonarr and this container.
+- A persistent `/data` volume.
+- `AUTH_USERNAME` and `AUTH_PASSWORD` for the browser manager.
+- A torrent download client already configured in Sonarr. This proxy finds and describes releases; Sonarr and its download client handle downloads.
 
 No host Python installation or Nyaa account is required. Optional Sonarr URL and API key settings enable series metadata lookup when requests identify a series by TVDB or IMDb ID.
 
-## Container Setup
+## Quick Start
 
-The public development image is:
+The project publishes a rolling `stable` image as well as `dev` and commit-specific images. Use `stable` for normal installs; `dev` is available for testing. The personal development stack for this project may use `dev` independently.
 
-```text
-ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
+Create a Docker network shared with Sonarr if you do not already have one:
+
+```sh
+docker network create sonarr-net
 ```
 
-Pull it with `docker pull ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev`.
-
-Example Compose service:
+Attach the Sonarr container to that network, then save this as `compose.yaml`:
 
 ```yaml
 services:
   sonarr-proxy-manager:
-    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
+    image: ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable
     restart: unless-stopped
-    expose:
-      - "8787"
+    ports:
+      - "127.0.0.1:8787:8787"
     environment:
       SONARR_URL: ${SONARR_URL:-}
       SONARR_API_KEY: ${SONARR_API_KEY:-}
@@ -50,18 +50,157 @@ services:
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
     volumes:
       - sonarr-proxy-manager-data:/data
+    networks:
+      - sonarr-net
 
 volumes:
   sonarr-proxy-manager-data:
+
+networks:
+  sonarr-net:
+    external: true
 ```
 
-Connect Sonarr and the proxy to the same Docker network. In Sonarr, add a Torznab indexer with URL `http://sonarr-proxy-manager:8787/api`. If `PROXY_API_KEY` is set, enter the same value in the indexer's API key field. The manager UI is at `http://<proxy-address>:8787/manager/`; publish a host port or configure a private reverse-proxy route only if browser access is needed. The Compose example exposes the port only to its Docker network.
+Create an untracked `.env` file beside the Compose file:
 
-Set both `AUTH_USERNAME` and `AUTH_PASSWORD` to enable the manager. Without them, manager pages and rule APIs remain unavailable while the Torznab `/api` continues to work independently. The session cookie is HTTP-only, same-site, and expires after 12 hours. Set `AUTH_COOKIE_SECURE=true` when the manager is accessed over HTTPS. Use your container manager's secret facility or an untracked environment file for credentials; never commit real credentials.
+```dotenv
+AUTH_USERNAME=proxy-admin
+AUTH_PASSWORD=replace-with-a-long-unique-password
+AUTH_COOKIE_SECURE=false
+PROXY_API_KEY=
+SONARR_URL=
+SONARR_API_KEY=
+```
+
+Start the service with `docker compose up -d`. The manager is available locally at `http://127.0.0.1:8787/manager/`. Do not expose the manager publicly. If you put it behind HTTPS, set `AUTH_COOKIE_SECURE=true` and use a private, access-controlled route.
+
+In Sonarr, add an indexer of type **Torznab (Custom)**:
+
+| Setting | Value |
+| --- | --- |
+| URL | `http://sonarr-proxy-manager:8787/api` |
+| API key | Leave blank unless `PROXY_API_KEY` is set; otherwise use that value. |
+| Categories | TV / Anime, if Sonarr asks for categories. |
+
+Sonarr and the proxy must share `sonarr-net` for the container hostname above to resolve. Manager login credentials and `PROXY_API_KEY` are separate: the former protects the browser UI, while the latter optionally protects Torznab requests.
+
+## Built-In Rules
+
+These eight rules are enabled and locked by default. Unlocking a built-in rule permits changing its manager settings; it does not replace or redefine the matching algorithm described here.
+
+| Rule | Default behavior |
+| --- | --- |
+| Strip release years | Removes bracketed years before classification so a year such as `[2024]` is not mistaken for an episode number. |
+| Normalize season packs | Recognizes `Season 1`, `S01`, and ordinal season forms, then rewrites accepted season titles to Sonarr-safe `Sxx` form. |
+| Episode scans stay episodic | For a request with both `season` and `ep`, keeps only the exact matching `SxxExx`; season packs and episode ranges are excluded. |
+| Season scans stay seasonal | For a request with `season` but no `ep`, excludes single episodes and partial ranges while keeping matching season packs. |
+| Anchor the series match | Requires meaningful query words to match the release title, reducing accidental substring matches for a different series. |
+| Expand release queries | Tries padded, unpadded, ordinal, and year-aware season/episode query forms to find more release groups. |
+| Provide torrent links | Uses Nyaa's direct `.torrent` download URL in the Torznab `link` and `enclosure`. |
+| Annotate Dual Audio | Adds Japanese and English to Dual Audio titles and emits Torznab `language` attributes with those names. |
+
+Weekly episode searches are not a goal of this proxy: the base behavior focuses on exact episode results and season packs.
+
+## Add a Custom Rule
+
+Sign in to `/manager/`, open **Custom rules**, and select **Add rule**. Custom rules are editable by default. Enter a name, the text to match, a scope, and an action:
+
+| Action | Effect |
+| --- | --- |
+| Prefer | Moves matching results ahead of other accepted results; seeders order results within each group. |
+| Exclude | Removes a matching result from the feed. |
+| Rewrite | Replaces the first case-insensitive occurrence of the match text in the normalized title with the replacement value. |
+| Annotate | Appends the supplied value in brackets to the normalized title. |
+
+Matching is a case-insensitive substring check against the original Nyaa release title. Choose **Episodes and seasons**, **Episode searches**, or **Season searches** for the rule's scope, then save. The rule manager writes the JSON configuration to the persistent data volume; you do not need to edit XML or hand-write the JSON file.
+
+For example, to put Judas season packs first, add a rule with match `Judas`, scope **Season searches**, and action **Prefer**. A matching Judas pack will be listed before an otherwise accepted non-Judas result, even if the latter has more seeders. To remove a known noisy release group instead, choose action **Exclude**.
+
+## Torznab Requests and XML Examples
+
+The proxy accepts query-string requests and returns XML. XML is the response format; XML is not the format for adding rules.
+
+Capabilities request:
+
+```text
+GET /api?t=caps
+```
+
+Example episode search for season 1, episode 6:
+
+```text
+GET /api?t=tvsearch&q=Moonrise&season=1&ep=6
+```
+
+Example season search for season 1 (omit `ep`):
+
+```text
+GET /api?t=tvsearch&q=Moonrise&season=1
+```
+
+If `PROXY_API_KEY` is configured, append `&apikey=YOUR_PROXY_API_KEY`. Sonarr also supplies TVDB/IMDb identifiers when available. The proxy advertises `q`, `season`, `ep`, `tvdbid`, and `imdbid` in its Torznab capabilities.
+
+The following abbreviated feed item illustrates an accepted episode result after title normalization and Dual Audio annotation. Values such as the Nyaa ID, hash, size, and date are illustrative:
+
+```xml
+<rss version="2.0"
+     xmlns:atom="http://www.w3.org/2005/Atom"
+     xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Sonarr Proxy Manager</title>
+    <description>Nyaa results with Sonarr-friendly season-pack titles</description>
+    <item>
+      <title>[Judas] Moonrise S01E06 1080p [Dual Audio] [Japanese English]</title>
+      <guid isPermaLink="true">https://nyaa.si/view/1234567</guid>
+      <link>https://nyaa.si/download/1234567.torrent</link>
+      <comments>https://nyaa.si/view/1234567</comments>
+      <pubDate>Mon, 01 Jun 2026 12:00:00 +0000</pubDate>
+      <size>1500000000</size>
+      <description>[Judas] Moonrise S01E06 1080p [Dual Audio] [Japanese English] | original: [Judas] Moonrise Season 1 - 06 1080p [Dual Audio]</description>
+      <enclosure url="https://nyaa.si/download/1234567.torrent"
+                 length="1500000000"
+                 type="application/x-bittorrent" />
+      <torznab:attr name="category" value="5070" />
+      <torznab:attr name="seeders" value="42" />
+      <torznab:attr name="peers" value="50" />
+      <torznab:attr name="grabs" value="120" />
+      <torznab:attr name="infohash" value="0123456789abcdef0123456789abcdef01234567" />
+      <torznab:attr name="language" value="Japanese" />
+      <torznab:attr name="language" value="English" />
+    </item>
+  </channel>
+</rss>
+```
+
+For a season search, the same normalization turns a full-season title such as `[EMBER] Moonrise Season 1 [1080p] [Dual Audio]` into a Sonarr-safe title containing `S01`; single episodes and partial episode ranges are filtered before they reach the feed. A direct torrent link is emitted by default. The feed's Torznab category is Anime (`5070`), and Dual Audio language attributes use the language names `Japanese` and `English`.
+
+For clarity, a season-pack result is a separate response to a request without `ep`; it is not mixed into the episode response above. An abbreviated season-pack item looks like this:
+
+```xml
+<item xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <title>[EMBER] Moonrise S01 [1080p] [Dual Audio] [Japanese English]</title>
+  <guid isPermaLink="true">https://nyaa.si/view/1234568</guid>
+  <link>https://nyaa.si/download/1234568.torrent</link>
+  <comments>https://nyaa.si/view/1234568</comments>
+  <pubDate>Mon, 01 Jun 2026 12:05:00 +0000</pubDate>
+  <size>9000000000</size>
+  <description>[EMBER] Moonrise S01 [1080p] [Dual Audio] [Japanese English] | original: [EMBER] Moonrise Season 1 [1080p] [Dual Audio]</description>
+  <enclosure url="https://nyaa.si/download/1234568.torrent"
+             length="9000000000"
+             type="application/x-bittorrent" />
+  <torznab:attr name="category" value="5070" />
+  <torznab:attr name="seeders" value="18" />
+  <torznab:attr name="peers" value="23" />
+  <torznab:attr name="grabs" value="75" />
+  <torznab:attr name="infohash" value="89abcdef0123456789abcdef0123456789abcdef" />
+  <torznab:attr name="language" value="Japanese" />
+  <torznab:attr name="language" value="English" />
+</item>
+```
 
 ## Configuration
 
-Settings can be provided as environment variables. Defaults shown here are used when a setting is omitted.
+Environment variables (defaults apply when omitted):
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
@@ -70,24 +209,29 @@ Settings can be provided as environment variables. Defaults shown here are used 
 | `NYAA_BASE_URL` | `https://nyaa.si` | Nyaa-compatible index URL. |
 | `NYAA_CATEGORY` | `1_2` | Nyaa category filter; `1_2` is Anime - English-translated. |
 | `NYAA_FILTER` | `0` | Nyaa filter value. |
-| `SONARR_URL` | empty | Sonarr base URL reachable from the proxy container; used for optional series metadata lookup. |
-| `SONARR_API_KEY` | empty | Sonarr API key for the optional metadata lookup. |
+| `SONARR_URL` | empty | Sonarr base URL reachable from the proxy; used for optional series metadata lookup. |
+| `SONARR_API_KEY` | empty | Sonarr API key for optional metadata lookup. |
 | `PROXY_API_KEY` | empty | Optional API key required for Torznab `/api` requests. |
-| `AUTH_USERNAME` | unset | Username required to sign in to the manager UI. Must be configured with `AUTH_PASSWORD`. |
-| `AUTH_PASSWORD` | unset | Password required to sign in to the manager UI. Must be configured with `AUTH_USERNAME`. |
-| `AUTH_COOKIE_SECURE` | `false` | Adds the Secure flag to the manager session cookie; enable when accessing the UI over HTTPS. |
+| `AUTH_USERNAME` | unset | Manager sign-in username; configure with `AUTH_PASSWORD`. |
+| `AUTH_PASSWORD` | unset | Manager sign-in password; configure with `AUTH_USERNAME`. |
+| `AUTH_COOKIE_SECURE` | `false` | Set `true` when accessing the manager over HTTPS. |
 | `CACHE_TTL_SECONDS` | `300` | Cache duration for Nyaa and Sonarr responses. |
 | `REQUEST_TIMEOUT_SECONDS` | `20` | Outbound request timeout. |
 | `SONARR_CONFIG_PATH` | `/app/sonarr_proxy_config.json` | Optional legacy JSON configuration file path. |
 
+The manager session cookie is HTTP-only, same-site, and expires after 12 hours. Use Docker secrets or an untracked environment file for credentials; never commit real credentials.
+
 ## Endpoints
 
-- `/api` - Torznab endpoint to add as an indexer in Sonarr.
-- `/manager/` - Authenticated browser UI for built-in defaults and custom rules.
-- `/manager/login` - Manager sign-in page.
-- `/health` - Basic health response.
+| Path | Purpose |
+| --- | --- |
+| `/api` | Torznab endpoint to add as an indexer in Sonarr. |
+| `/api?t=caps` | Torznab capabilities response. |
+| `/manager/` | Authenticated rule manager. |
+| `/manager/login` | Manager sign-in page. |
+| `/health` | Basic health response. |
 
-## Development
+## Development and Images
 
 Run the tests and build locally:
 
@@ -96,7 +240,13 @@ python -m unittest -q test_nyaa_proxy_runtime_patch test_manager_server
 docker build -t sonarr-proxy-manager:dev .
 ```
 
-The GitHub Actions workflow tests the proxy and manager, checks the browser scripts, and publishes the `dev` image plus a commit-specific image to GitHub Container Registry when changes reach `main`.
+Every successful push to `main` runs tests, checks the manager scripts, and publishes these GitHub Container Registry tags:
+
+- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable`
+- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev`
+- `ghcr.io/deepdaddyttv/sonarr-proxy-manager:sha-<commit>`
+
+`stable` and `dev` are rolling tags for the main-branch build; use the commit-specific tag when you need to pin an exact image.
 
 ## License
 

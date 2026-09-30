@@ -1,4 +1,4 @@
-name: Publish development image
+name: Publish container images
 
 on:
   push:
@@ -13,8 +13,8 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.13'
       - name: Test proxy and manager
@@ -24,15 +24,16 @@ jobs:
           node --check app.js
           node --check auth.js
           node --check site-icon.js
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           push: true
           tags: |
             ghcr.io/deepdaddyttv/sonarr-proxy-manager:dev
+            ghcr.io/deepdaddyttv/sonarr-proxy-manager:stable
             ghcr.io/deepdaddyttv/sonarr-proxy-manager:sha-${{ github.sha }}
