@@ -113,7 +113,21 @@ Start the service with `docker compose up -d`. The manager is available locally 
 | Sonarr Proxy Lime / TV only | Specific TV subcategories, excluding `5000` and `5070` | Empty |
 | Anime and TV | Specific TV subcategories | `5070` |
 
-Set the show's **Series Type** to Anime or Standard/Daily as appropriate. Sonarr uses that type to choose the category field; it does not infer anime from the indexer name. The broad parent category **TV (`5000`) includes Anime (`5070`)**, so the manager does not use `5000` in the registered standard-search field. A tracker exposing only parent TV can still be queried upstream through `5000`; the virtual feed's request routing remains separate and explicitly categorized anime items are excluded from its TV path.
+By default, Sonarr uses the show's **Series Type** to choose the category field; it does not infer anime from the indexer name. The broad parent category **TV (`5000`) includes Anime (`5070`)**, so the manager does not use `5000` in the registered standard-search field. A tracker exposing only parent TV can still be queried upstream through `5000`; the virtual feed's request routing remains separate and explicitly categorized anime items are excluded from its TV path.
+
+### Keep Standard Numbering and Route by Tags
+
+If you organize anime with Sonarr tags and deliberately keep **Series Type = Standard**, open **Settings / Series routing**. Enter your existing Anime and TV tag labels (for example `anime` and `tv`), save, and sync feeds again. The manager resolves the existing tag IDs and restricts its own Sonarr entries to the appropriate tags. The Anime feed also gets regular category `5070`, so Standard-numbered anime searches reach it. Its Anime Categories remain `5070`; the TV feed still excludes that category.
+
+The proxy additionally checks the requested series' tags before contacting its upstreams, using Sonarr identifiers or an exact normalized main/alternate title. An anime-tagged series cannot use the TV feed even if it also has the TV tag. Unknown or ambiguously classified titles are rejected in tag mode. With a TV tag configured, untagged shows do not use the TV feed. If only an Anime tag is configured, the TV feed accepts known shows without that Anime tag. Tag and series metadata are cached for up to five minutes. Neither series types, existing series tags, episode ordering, nor the original Prowlarr entries are changed. Leave both labels empty and sync again to restore Series Type routing.
+
+Compose equivalent:
+
+```yaml
+environment:
+  SONARR_ANIME_TAG: anime
+  SONARR_TV_TAG: tv
+```
 
 Existing raw Prowlarr entries continue returning their original results; a release can appear once raw and once rewritten. The manager never edits their categories. For strict separation across those raw entries too, configure Prowlarr's Sonarr application **Sync Categories / Anime Sync Categories** appropriately. Avoid manually editing Prowlarr-owned Sonarr fields when using Full Sync, which can overwrite those edits. Existing legacy proxy entries also remain unchanged; disable them yourself when you no longer want combined-feed results. See [Prowlarr application sync](https://wiki.servarr.com/en/prowlarr/quick-start-guide) and [Sonarr indexer settings](https://wiki.servarr.com/sonarr/settings#indexers).
 
@@ -408,6 +422,8 @@ Environment variables (defaults apply when omitted):
 | `UPSTREAM_INDEXERS_JSON` | `[]` | JSON array of additional Torznab upstreams. Each entry needs a unique `id`, display `name`, API `url`, and optionally `api_key` and `categories`. |
 | `SONARR_URL` | empty | Sonarr base URL for metadata lookup and explicit feed registration. |
 | `SONARR_API_KEY` | empty | Sonarr API key. |
+| `SONARR_ANIME_TAG` | empty | Existing Sonarr Anime tag label; enables Standard-numbered anime feed routing. |
+| `SONARR_TV_TAG` | empty | Existing Sonarr TV tag label; restricts TV feeds to tagged shows. |
 | `PROXY_API_KEY` | generated for new feeds | Key for `/feeds/<id>/api`; also protects legacy `/api` when configured through environment or legacy config. UI key edits apply to new feeds only. |
 | `AUTH_USERNAME` | unset | Manager sign-in username; configure with `AUTH_PASSWORD`. |
 | `AUTH_PASSWORD` | unset | Manager sign-in password; configure with `AUTH_USERNAME`. |

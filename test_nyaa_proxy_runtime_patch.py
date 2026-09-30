@@ -100,6 +100,14 @@ class ProxyFixtureTests(unittest.TestCase):
         self.assertEqual(parsed.kind, "episode")
         self.assertEqual(proxy.rewrite_title(title, parsed), "[Anime Time] Welcome to Japan, Ms Elf! S01E01 [1080p]")
 
+    def test_tv_episode_notations_are_not_season_packs(self):
+        for title in ("Scissione 1x02 Half Loop ITA ENG 2160p", "Show Season 1 Episode 02 1080p", "Show E02 1080p"):
+            with self.subTest(title=title):
+                parsed = proxy.parse_release_title(title, 1)
+                self.assertEqual((parsed.kind, parsed.season, parsed.episode_start), ("episode", 1, 2))
+        parsed = proxy.parse_release_title("Show 1x02-1x04 1080p", 1)
+        self.assertEqual((parsed.kind, parsed.episode_start, parsed.episode_end), ("range", 2, 4))
+
     def test_season_query_variants_include_unpadded_and_ordinal_forms(self):
         variants = proxy.search_variants("The Duke of Death and His Maid", 2, None)
         self.assertIn("The Duke of Death and His Maid Season 2", variants)

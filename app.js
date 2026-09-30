@@ -552,6 +552,10 @@ function renderIntegrations() {
       byId(`${service}Key`).placeholder = connection.hasApiKey ? "Saved key (leave blank to keep)" : "Enter API key";
       byId(`${service}Origin`).textContent = Object.values(connection.managed).some(Boolean) ? "Environment" : "Local settings";
     }
+    for (const field of ["animeTag", "tvTag"]) {
+      byId(field).value = settings.routing?.[field] || "";
+      byId(field).disabled = Boolean(settings.routingManaged?.[field]);
+    }
   }
   const profile = byId("ruleProfile");
   const selected = profile.value;
@@ -612,7 +616,11 @@ byId("settingsForm").addEventListener("submit", event => {
       if (!settings.connections[service].managed.url) connections[service].url = byId(`${service}Url`).value.trim();
       if (!settings.connections[service].managed.apiKey && byId(`${service}Key`).value) connections[service].apiKey = byId(`${service}Key`).value;
     }
-    settings = await managerRequest("settings", "PUT", { connections });
+    const routing = {};
+    for (const field of ["animeTag", "tvTag"]) {
+      if (!settings.routingManaged?.[field]) routing[field] = byId(field).value.trim();
+    }
+    settings = await managerRequest("settings", "PUT", { connections, routing });
     sources = await managerRequest("sources");
     indexerCatalog = sources;
     setIndexerOptions();

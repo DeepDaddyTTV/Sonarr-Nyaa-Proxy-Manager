@@ -8,6 +8,7 @@ import os
 import re
 import secrets
 import threading
+import time
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -21,6 +22,7 @@ CONNECTION_ENV = {
     "sonarr": {"url": "SONARR_URL", "apiKey": "SONARR_API_KEY"},
     "proxy": {"url": "PROXY_PUBLIC_URL", "apiKey": "PROXY_API_KEY"},
 }
+ROUTING_ENV = {"animeTag": "SONARR_ANIME_TAG", "tvTag": "SONARR_TV_TAG"}
 ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,64}\Z")
 
 
@@ -100,6 +102,7 @@ class IntegrationStore:
         self.legacy_sources = legacy_sources
         self.lock = threading.RLock()
         self.sync_lock = threading.Lock()
+        self.tag_cache = {}
         try:
             self.data = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
@@ -115,6 +118,7 @@ class IntegrationStore:
         self.data.setdefault("feeds", [])
         self.data.setdefault("discovered", [])
         self.data.setdefault("sonarrMappings", {})
+        self.data.setdefault("routing", {"animeTag": "", "tvTag": ""})
         proxy = self.data["connections"].setdefault("proxy", {})
         if not proxy.get("apiKey"):
             proxy["apiKey"] = secrets.token_hex(24)
@@ -131,6 +135,8 @@ class IntegrationStore:
                     connection[field] = os.environ[variable]
             connection["url"] = validate_url(connection.get("url", ""))
             connection.setdefault("apiKey", "")
+        for field, variable in ROUTING_ENV.items():
+            result["routing"][field] = os.environ.get(variable) or result["routing"].get(field, "")
         if os.environ.get("PROXY_FEEDS_JSON"):
             try:
                 result["feeds"] = self.normalize_feeds(json.loads(os.environ["PROXY_FEEDS_JSON"]), check_sources=False)
@@ -149,6 +155,8 @@ class IntegrationStore:
                 } for service, fields in CONNECTION_ENV.items()
             },
             "feedsManaged": bool(os.environ.get("PROXY_FEEDS_JSON")),
+            "routing": config["routing"],
+            "routingManaged": {field: bool(os.environ.get(variable)) for field, variable in ROUTING_ENV.items()},
         }
 
     def save_settings(self, payload: object) -> dict:
@@ -156,6 +164,17 @@ class IntegrationStore:
             raise ValueError("connections must be an object")
         with self.sync_lock, self.lock:
             candidate = copy.deepcopy(self.data)
+            routing = payload.get("routing", {})
+            if not isinstance(routing, dict):
+                raise ValueError("routing must be an object")
+            for field, value in routing.items():
+                if field not in ROUTING_ENV or not isinstance(value, str) or len(value) > 100:
+                    raise ValueError("Routing tags must be tag labels of at most 100 characters")
+                if os.environ.get(ROUTING_ENV[field]):
+                    if value != os.environ[ROUTING_ENV[field]]:
+                        raise ValueError(f"{ROUTING_ENV[field]} is managed by the environment")
+                else:
+                    candidate["routing"][field] = value.strip()
             for service, incoming in payload["connections"].items():
                 if service not in CONNECTION_ENV or not isinstance(incoming, dict):
                     raise ValueError("Unsupported connection")
@@ -182,6 +201,7 @@ class IntegrationStore:
                 candidate["discovered"] = []
             atomic_json(self.path, candidate)
             self.data = candidate
+            self.tag_cache.clear()
         return self.public_settings()
 
     def test_connection(self, service: str) -> dict:
@@ -292,7 +312,37 @@ class IntegrationStore:
         return self.public_feeds()
 
     def feeds(self) -> list[dict]:
-        return self.effective()["feeds"]
+        config = self.effective()
+        tags = self.routing_tags(config)
+        return [{**feed, **tags} for feed in config["feeds"]] if tags else config["feeds"]
+
+    def routing_tags(self, config=None) -> dict:
+        config = config or self.effective()
+        routing = config["routing"]
+        if not any(routing.values()):
+            return {}
+        sonarr = config["connections"]["sonarr"]
+        cache_key = (sonarr["url"], sonarr["apiKey"], routing["animeTag"], routing["tvTag"])
+        with self.lock:
+            cached = self.tag_cache.get(cache_key)
+            if cached and time.time() - cached[0] < 300:
+                return cached[1]
+        available = api_request(sonarr["url"], sonarr["apiKey"], "/api/v3/tag")
+        if not isinstance(available, list):
+            raise ValueError("Sonarr did not return a tag list")
+        result = {}
+        for field, label in routing.items():
+            if not label:
+                continue
+            tag = next((value for value in available if str(value.get("label", "")).casefold() == label.casefold()), None)
+            if tag is None:
+                raise ValueError(f"The configured {field} does not exist in Sonarr; use its existing tag label")
+            result[field + "Id"] = tag["id"]
+        if result.get("animeTagId") == result.get("tvTagId"):
+            raise ValueError("Anime and TV routing tags must be different")
+        with self.lock:
+            self.tag_cache[cache_key] = (time.time(), result)
+        return result
 
     def public_feeds(self) -> list[dict]:
         config = self.effective()
@@ -304,6 +354,7 @@ class IntegrationStore:
         # The lock prevents two requests from creating the same virtual indexer.
         with self.sync_lock:
             config = self.effective()
+            routing_tags = self.routing_tags(config)
             sonarr = config["connections"]["sonarr"]
             proxy = config["connections"]["proxy"]
             if not proxy["url"]:
@@ -346,8 +397,9 @@ class IntegrationStore:
                     raise ValueError(f"{feed['name']} has unavailable upstreams; rediscover Prowlarr first")
                 entry = copy.deepcopy(previous if previous is not None else template)
                 entry.update(name=feed["name"], enableRss=False, enableAutomaticSearch=feed["enabled"], enableInteractiveSearch=feed["enabled"])
+                entry["tags"] = [routing_tags[key] for key in ("animeTagId", "tvTagId") if key in routing_tags and (feed["mode"] == "both" or key == ("animeTagId" if feed["mode"] == "anime" else "tvTagId"))]
                 values = {"baseUrl": proxy["url"], "apiPath": path, "apiKey": proxy["apiKey"],
-                          "categories": feed["tvCategories"] if feed["mode"] in {"tv", "both"} else [],
+                          "categories": (feed["tvCategories"] if feed["mode"] in {"tv", "both"} else []) + ([5070] if routing_tags.get("animeTagId") and feed["mode"] != "tv" else []),
                           "animeCategories": [5070] if feed["mode"] in {"anime", "both"} else [],
                           "animeStandardFormatSearch": True, "additionalParameters": ""}
                 for field in entry.get("fields", []):

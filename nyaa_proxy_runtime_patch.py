@@ -15,19 +15,21 @@ YEAR_TOKEN = re.compile(r"(?<!\d)[(\[]\s*(?:19|20)\d{2}\s*[)\]]")
 SEASON_TOKEN = re.compile(
     r"(?ix)"
     r"\bS(?P<s_num>\d{1,2})(?:[ ._-]*E(?P<s_ep>\d{1,3}))?\b"
+    r"|\b(?P<x_num>\d{1,2})x(?P<x_ep>\d{1,3})\b"
     r"|(?P<ordinal>\d{1,2})(?:st|nd|rd|th)\s+Season\b"
     r"|(?P<season_word>\bSeason)(?:[ ._-]*)(?P<w_num>\d{1,2})\b"
 )
 EPISODE_AFTER_SEASON = re.compile(
-    r"(?ix)\s*[-:]\s*(?P<start>\d{1,3})"
+    r"(?ix)(?:\s*[-:]\s*|[ ._-]+(?:Episode|Ep|E)[ ._-]*)(?P<start>\d{1,3})"
     r"(?:\s*(?P<separator>[-~])\s*(?P<end>\d{1,3}))?"
 )
-RANGE_END_AFTER_EPISODE = re.compile(r"(?ix)\s*[-~]\s*E?(?P<end>\d{1,3})\b")
+RANGE_END_AFTER_EPISODE = re.compile(r"(?ix)\s*[-~]\s*(?:\d{1,2}x)?E?(?P<end>\d{1,3})\b")
 FALLBACK_EPISODE = re.compile(
     r"(?ix)(?:^|\s)-\s*(?P<start>\d{1,3})"
     r"(?:\s*(?P<separator>[-~])\s*(?P<end>\d{1,3}))?(?=$|\s|[\[(])"
 )
 BATCH_MARKER = re.compile(r"(?ix)\b(?:batch|complete|collection)\b")
+EXPLICIT_EPISODE = re.compile(r"(?ix)\b(?:Episode|Ep|E)[ ._-]*(?P<start>\d{1,3})\b")
 DUAL_AUDIO_MARKER = re.compile(r"(?ix)\bdual[\s._-]*audio\b")
 TORZNAB_NS = "http://torznab.com/schemas/2015/feed"
 ATOM_NS = "http://www.w3.org/2005/Atom"
@@ -53,6 +55,8 @@ def strip_year_tokens(title: str) -> str:
 def _season_from_match(match: re.Match[str]) -> int:
     if match.group("s_num"):
         return int(match.group("s_num"))
+    if match.group("x_num"):
+        return int(match.group("x_num"))
     if match.group("ordinal"):
         return int(match.group("ordinal"))
     return int(match.group("w_num"))
@@ -81,10 +85,11 @@ def parse_release_title(
         season = _season_from_match(marker)
         marker_start = marker.start()
         marker_end = marker.end()
-        if marker.group("s_ep"):
-            episode_start = int(marker.group("s_ep"))
-            episode_start_pos = marker.start("s_ep")
-            episode_end_pos = marker.end("s_ep")
+        episode_group = "s_ep" if marker.group("s_ep") else "x_ep"
+        if marker.group(episode_group):
+            episode_start = int(marker.group(episode_group))
+            episode_start_pos = marker.start(episode_group)
+            episode_end_pos = marker.end(episode_group)
             after_episode = RANGE_END_AFTER_EPISODE.match(cleaned, marker.end())
             if after_episode:
                 episode_end = int(after_episode.group("end"))
@@ -99,12 +104,12 @@ def parse_release_title(
                     episode_end = int(after.group("end"))
                     episode_end_pos = after.end("end")
     else:
-        fallback = FALLBACK_EPISODE.search(cleaned)
+        fallback = FALLBACK_EPISODE.search(cleaned) or EXPLICIT_EPISODE.search(cleaned)
         if fallback:
             episode_start = int(fallback.group("start"))
             episode_start_pos = fallback.start("start")
             episode_end_pos = fallback.end("start")
-            if fallback.group("end"):
+            if fallback.groupdict().get("end"):
                 episode_end = int(fallback.group("end"))
                 episode_end_pos = fallback.end("end")
             if requested_season is not None:
@@ -504,6 +509,35 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None,
     def perform_search(self: object, params, season, episode, feed) -> None:
         series_year: Optional[int] = None
         tvdb_id = original_first(params, "tvdbid", "").strip()
+        if feed and (feed.get("animeTagId") or feed.get("tvTagId")):
+            imdb_id = original_first(params, "imdbid", "").strip().casefold()
+            query = original_first(params, "q", "").strip()
+            normalize = lambda text: " ".join(re.findall(r"[a-z0-9]+", text.casefold()))
+            candidates = []
+            for series in original_fetch_sonarr_series():
+                if tvdb_id or imdb_id:
+                    if tvdb_id and str(series.get("tvdbId", "")) != tvdb_id:
+                        continue
+                    if imdb_id and str(series.get("imdbId", "")).casefold() != imdb_id:
+                        continue
+                else:
+                    titles = [series.get("title", "")] + [value.get("title", "") for value in series.get("alternateTitles", [])]
+                    if not query or normalize(query) not in {normalize(title) for title in titles}:
+                        continue
+                candidates.append(series)
+            # Tag-based routing never changes series type or absolute numbering.
+            def allowed_series(series):
+                tags = series.get("tags", [])
+                anime = feed.get("animeTagId") in tags
+                tv = feed.get("tvTagId") in tags
+                if feed["mode"] == "anime":
+                    return anime
+                if feed["mode"] == "tv":
+                    return (tv if feed.get("tvTagId") else True) and not anime
+                return anime or tv
+            if not candidates or not all(allowed_series(series) for series in candidates):
+                self.write_xml(module.feed_xml([], self.absolute_url()))
+                return
         if tvdb_id:
             try:
                 for series in original_fetch_sonarr_series():
@@ -530,7 +564,11 @@ def install(module: object, rules_provider: Optional[Callable[[], dict]] = None,
         match = re.fullmatch(r"/feeds/([A-Za-z0-9_-]{1,64})/api", parsed_url.path)
         feed = None
         if match and feeds_provider:
-            feed = next((value for value in feeds_provider() if value["id"] == match.group(1)), None)
+            try:
+                feed = next((value for value in feeds_provider() if value["id"] == match.group(1)), None)
+            except (ValueError, OSError):
+                self.send_error(503, "Feed configuration is unavailable")
+                return
             if feed is None:
                 self.send_error(404, "Feed not found")
                 return

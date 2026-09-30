@@ -31,7 +31,7 @@ class IntegrationTests(unittest.TestCase):
     def setUp(self):
         self.folder = tempfile.TemporaryDirectory()
         self.env = patch.dict(os.environ, {key: "" for key in (
-            "PROWLARR_URL", "PROWLARR_API_KEY", "SONARR_URL", "SONARR_API_KEY", "PROXY_PUBLIC_URL", "PROXY_API_KEY", "PROXY_FEEDS_JSON")})
+            "PROWLARR_URL", "PROWLARR_API_KEY", "SONARR_URL", "SONARR_API_KEY", "PROXY_PUBLIC_URL", "PROXY_API_KEY", "PROXY_FEEDS_JSON", "SONARR_ANIME_TAG", "SONARR_TV_TAG")})
         self.env.start()
         self.store = IntegrationStore(Path(self.folder.name) / "integrations.json", lambda: LEGACY)
 
@@ -92,6 +92,17 @@ class IntegrationTests(unittest.TestCase):
         self.store.save_settings({"connections": {"prowlarr": {"url": "http://new-prowlarr:9696"}}})
         self.assertEqual(len(self.store.sources()), 1)
 
+    def test_tag_routing_uses_existing_sonarr_tags_and_env_precedence(self):
+        self.connect()
+        self.store.save_settings({"connections": {}, "routing": {"animeTag": "anime", "tvTag": "tv"}})
+        with patch("proxy_integrations.api_request", return_value=[{"id": 2, "label": "anime"}, {"id": 5, "label": "tv"}]):
+            self.assertEqual(self.store.routing_tags(), {"animeTagId": 2, "tvTagId": 5})
+        with patch.dict(os.environ, {"SONARR_ANIME_TAG": "from-env"}):
+            self.assertTrue(self.store.public_settings()["routingManaged"]["animeTag"])
+            self.assertEqual(self.store.public_settings()["routing"]["animeTag"], "from-env")
+            with self.assertRaisesRegex(ValueError, "environment"):
+                self.store.save_settings({"connections": {}, "routing": {"animeTag": "other"}})
+
     def test_invalid_feeds_and_parent_category_are_rejected(self):
         self.connect()
         self.discover()
@@ -142,6 +153,13 @@ class IntegrationTests(unittest.TestCase):
             self.assertEqual(field_value(tv, "animeCategories"), [])
             self.assertNotIn(5000, field_value(tv, "categories"))
             self.assertFalse(anime["enableRss"])
+            self.store.save_settings({"connections": {}, "routing": {"animeTag": "anime", "tvTag": "tv"}})
+            with patch.object(self.store, "routing_tags", return_value={"animeTagId": 2, "tvTagId": 5}):
+                self.store.sync_sonarr()
+            self.assertEqual(entries[1]["tags"], [2])
+            self.assertEqual(field_value(entries[1], "categories"), [5070])
+            self.assertEqual(entries[2]["tags"], [5])
+            self.store.save_settings({"connections": {}, "routing": {"animeTag": "", "tvTag": ""}})
             # Disabling affects only the manager's mapped entry, never deletes indexers.
             feeds = copy.deepcopy(FEEDS)
             feeds[0]["enabled"] = False
@@ -171,13 +189,14 @@ class FeedHTTPTests(unittest.TestCase):
         module = cls.module
         module.configured_indexers = lambda: [{"id": "prowlarr-1", "name": "Nyaa", "type": "torznab"}, {"id": "prowlarr-2", "name": "Lime", "type": "torznab"}]
         cls.calls = []
-        module.fetch_sonarr_series = lambda: []
+        cls.series = []
+        module.fetch_sonarr_series = lambda: cls.series
         cls.rules = {"anime": {"defaults": {"query-expansion": {"enabled": False}}, "customRules": []},
                      "tv": {"defaults": {key: {"enabled": False} for key in ("query-expansion", "season-classification", "dual-audio", "year-hygiene")}, "customRules": []}}
 
         def fetch(query, source, season=None, episode=None, params=None):
             cls.calls.append((source, query, copy.deepcopy(params)))
-            titles = ["[Judas] My Show S01E02 [Dual Audio]", "[Judas] My Show S01 [Batch]", "[Judas] My Show - 02 [Dual Audio]", "[Judas] Wrong Series S01E02"] if source == "prowlarr-1" else ["My.Show.S01E02.Dual.Audio", "My.Show.S01.Complete", "My.Show.2026.09.30.1080p", "Wrong.Series.S01E02"]
+            titles = ["[Judas] My Show S01E02 [Dual Audio]", "[Judas] My Show S01 [Batch]", "[Judas] My Show - 02 [Dual Audio]", "[Judas] Wrong Series S01E02"] if source == "prowlarr-1" else ["My.Show.S01E02.Dual.Audio", "My.Show.S01.Complete", "My.Show.2026.09.30.1080p", "My.Show.1x03.1080p", "Wrong.Series.S01E02"]
             return [module.Release(title, title, f"https://tracker/{index}", f"http://prowlarr/download/{index}?apikey=upstream-secret", "", 10, 3, 1, 0, "", "5070" if source == "prowlarr-1" else "5040", "", indexer_id=source, indexer_name=source) for index, title in enumerate(titles)]
 
         module.fetch_torznab = fetch
@@ -247,6 +266,27 @@ class FeedHTTPTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(self.titles(body), [])
         self.assertEqual(self.calls, [])
+
+    def test_standard_series_are_routed_by_tag_without_absolute_numbering(self):
+        series = [{"title": "My Show", "tvdbId": 101, "seriesType": "standard", "tags": [2]}]
+        scoped = [{**feed, "animeTagId": 2, "tvTagId": 5} for feed in FEEDS]
+        self.series[:] = series
+        original = copy.deepcopy(FEEDS)
+        try:
+            FEEDS[:] = scoped
+            self.assertEqual(len(self.titles(self.request("anime", "t=tvsearch&tvdbid=101&q=My+Show&season=1&ep=2&cat=5070")[1])), 2)
+            self.calls.clear()
+            self.assertEqual(self.titles(self.request("tv", "t=tvsearch&tvdbid=101&q=My+Show&season=1&ep=2&cat=5040")[1]), [])
+            self.assertEqual(self.calls, [])
+            self.assertEqual(series[0]["seriesType"], "standard")
+            self.series[:] = [{"title": "My Show", "tvdbId": 101, "seriesType": "standard", "tags": [5]}]
+            self.assertEqual(len(self.titles(self.request("tv", "t=tvsearch&tvdbid=101&q=My+Show&season=1&ep=2&cat=5040")[1])), 1)
+            self.calls.clear()
+            self.assertEqual(self.titles(self.request("anime", "t=tvsearch&q=Unknown+Show&season=1&ep=2&cat=5070")[1]), [])
+            self.assertEqual(self.calls, [])
+        finally:
+            FEEDS[:] = original
+            self.series.clear()
 
     def test_season_results_exclude_single_episodes_and_preserve_feed_name(self):
         for feed_id in ("anime", "tv"):
