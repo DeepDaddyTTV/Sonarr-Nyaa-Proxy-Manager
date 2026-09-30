@@ -50,7 +50,7 @@
         <section class="rule-library" aria-label="Rules">
           <div class="library-toolbar">
             <label class="search-field"><span class="ui-icon icon-search" aria-hidden="true"></span><span class="sr-only">Search rules</span><input id="ruleSearch" type="search" placeholder="Search rules..." autocomplete="off" /></label>
-            <label class="state-filter"><span class="sr-only">Filter by rule state</span><select id="stateFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="locked">Locked</option><option value="unlocked">Unlocked</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></label>
+            <div class="state-filter"><span class="site-select" data-select-label="Filter by rule state"><select id="stateFilter"><option value="all">All states</option><option value="enabled">Enabled</option><option value="disabled">Disabled</option><option value="locked">Locked</option><option value="unlocked">Unlocked</option></select></span></div>
           </div>
           <section class="rule-group" id="defaultSection" aria-labelledby="defaultHeading">
             <div class="group-heading"><h2 id="defaultHeading">Built-in rules <span id="defaultCount">8</span></h2><p>The essentials for accurate searches</p></div>
@@ -77,8 +77,8 @@
           <label id="descriptionField" hidden>Description<textarea id="ruleDescription" name="description" maxlength="240" rows="4"></textarea></label>
           <fieldset id="customFields"><legend class="sr-only">Custom matching behavior</legend>
             <label>Title contains<input id="ruleMatch" name="match" maxlength="120" placeholder="e.g. Judas" required /><span class="field-hint">Matches title text, ignoring case.</span></label>
-            <label>Search scope<span class="select-wrap"><select id="ruleScope" name="scope"><option value="all">Episodes and seasons</option><option value="episodes">Single episodes only</option><option value="seasons">Season packs only</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></span></label>
-            <label>Action<span class="select-wrap"><select id="ruleAction" name="action"><option value="prefer">Prefer matching results</option><option value="exclude">Exclude matching results</option><option value="rewrite">Replace matching text</option><option value="annotate">Add a title label</option></select><span class="ui-icon icon-chevron" aria-hidden="true"></span></span></label>
+            <div class="select-field"><span>Search scope</span><span class="select-wrap"><span class="site-select" data-select-label="Search scope"><select id="ruleScope" name="scope"><option value="all">Episodes and seasons</option><option value="episodes">Single episodes only</option><option value="seasons">Season packs only</option></select></span></span></div>
+            <div class="select-field"><span>Action</span><span class="select-wrap"><span class="site-select" data-select-label="Action"><select id="ruleAction" name="action"><option value="prefer">Prefer matching results</option><option value="exclude">Exclude matching results</option><option value="rewrite">Replace matching text</option><option value="annotate">Add a title label</option></select></span></span></div>
             <label id="valueField" hidden><span id="valueLabel">Replacement text</span><input id="ruleValue" name="value" maxlength="120" /></label>
           </fieldset>
         </div>

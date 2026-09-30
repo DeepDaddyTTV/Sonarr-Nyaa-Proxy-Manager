@@ -12,6 +12,7 @@ const ruleCatalog = [
   { id: "dual-audio", type: "Languages", name: "Annotate Dual Audio", description: "Adds Japanese and English to Dual Audio titles and Torznab metadata so Sonarr sees both languages." },
 ];
 const byId = id => document.getElementById(id);
+const siteSelectRoots = [];
 const els = Object.fromEntries([
   "defaultRules", "customRules", "defaultSection", "customSection", "emptyState", "noResults",
   "ruleDialog", "ruleForm", "ruleName", "ruleDescription", "descriptionField", "customFields",
@@ -23,6 +24,139 @@ function readStorage(key) { try { return localStorage.getItem(key); } catch { re
 function writeStorage(key, value) { try { localStorage.setItem(key, value); } catch { /* Server saves remain available without browser storage. */ } }
 function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, char => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
 function icon(name) { return `<span class="ui-icon icon-${name}" aria-hidden="true"></span>`; }
+function syncSiteSelect(root) {
+  if (!root) return;
+  const select = root.querySelector("select");
+  const trigger = root.querySelector(".site-select-trigger");
+  const selected = root.querySelector(`[data-value="${CSS.escape(select.value)}"]`);
+  if (!trigger) return;
+  trigger.querySelector(".site-select-value").textContent = selected?.textContent || select.value;
+  trigger.setAttribute("aria-label", `${root.dataset.selectLabel}, ${selected?.textContent || select.value}`);
+  root.querySelectorAll(".site-option").forEach(option => option.setAttribute("aria-selected", String(option === selected)));
+}
+function syncSiteSelects() { siteSelectRoots.forEach(syncSiteSelect); }
+function setSiteOptionFocus(root, index) {
+  const options = [...root.querySelectorAll(".site-option")];
+  const target = options[Math.max(0, Math.min(index, options.length - 1))];
+  target?.focus();
+}
+function positionSiteMenu(root) {
+  const trigger = root.querySelector(".site-select-trigger");
+  const menu = root.querySelector(".site-select-menu");
+  const bounds = trigger.getBoundingClientRect();
+  menu.style.setProperty("--select-min-width", `${bounds.width}px`);
+  const menuBounds = menu.getBoundingClientRect();
+  const left = Math.max(12, Math.min(bounds.right - menuBounds.width, window.innerWidth - menuBounds.width - 12));
+  const below = window.innerHeight - bounds.bottom;
+  const top = below < Math.min(menuBounds.height, 260) + 8 && bounds.top > below
+    ? Math.max(12, bounds.top - menuBounds.height - 6)
+    : Math.min(bounds.bottom + 6, window.innerHeight - menuBounds.height - 12);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+function closeSiteMenu(root, restoreFocus = false) {
+  const trigger = root.querySelector(".site-select-trigger");
+  const menu = root.querySelector(".site-select-menu");
+  if (menu.hidden) return;
+  menu.hidden = true;
+  trigger.setAttribute("aria-expanded", "false");
+  if (restoreFocus) trigger.focus();
+}
+function openSiteMenu(root, offset = 0, edge = null) {
+  const menu = root.querySelector(".site-select-menu");
+  const options = [...menu.querySelectorAll(".site-option")];
+  const selectedIndex = options.findIndex(option => option.getAttribute("aria-selected") === "true");
+  menu.hidden = false;
+  root.querySelector(".site-select-trigger").setAttribute("aria-expanded", "true");
+  positionSiteMenu(root);
+  setSiteOptionFocus(root, edge === "first" ? 0 : edge === "last" ? options.length - 1 : Math.max(0, selectedIndex) + offset);
+}
+function enhanceSiteSelects() {
+  document.querySelectorAll(".site-select[data-select-label]").forEach((root, index) => {
+    const select = root.querySelector("select");
+    const menu = document.createElement("div");
+    const trigger = document.createElement("button");
+    menu.id = `${select.id}Options`;
+    menu.className = "site-select-menu";
+    menu.setAttribute("role", "listbox");
+    menu.setAttribute("aria-label", root.dataset.selectLabel);
+    menu.hidden = true;
+    trigger.type = "button";
+    trigger.className = "site-select-trigger";
+    trigger.setAttribute("aria-label", root.dataset.selectLabel);
+    trigger.setAttribute("aria-haspopup", "listbox");
+    trigger.setAttribute("aria-controls", menu.id);
+    trigger.setAttribute("aria-expanded", "false");
+    trigger.innerHTML = `<span class="site-select-value"></span><span class="ui-icon icon-chevron" aria-hidden="true"></span>`;
+    [...select.options].forEach(option => {
+      const item = document.createElement("button");
+      item.type = "button";
+      item.className = "site-option";
+      item.setAttribute("role", "option");
+      item.dataset.value = option.value;
+      item.innerHTML = '<span class="site-option-check" aria-hidden="true"></span><span class="site-option-label"></span>';
+      item.querySelector(".site-option-label").textContent = option.textContent;
+      menu.append(item);
+    });
+    select.classList.add("site-select-native");
+    select.tabIndex = -1;
+    select.setAttribute("aria-hidden", "true");
+    root.insertBefore(trigger, select);
+    root.append(menu);
+    siteSelectRoots.push(root);
+    trigger.addEventListener("click", () => menu.hidden ? openSiteMenu(root) : closeSiteMenu(root));
+    trigger.addEventListener("keydown", event => {
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        openSiteMenu(root, event.key === "ArrowDown" ? 1 : -1);
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        openSiteMenu(root, 0, event.key === "Home" ? "first" : "last");
+      } else if (event.key === "Escape" && !menu.hidden) {
+        event.preventDefault();
+        closeSiteMenu(root, true);
+      }
+    });
+    menu.addEventListener("click", event => {
+      const option = event.target.closest(".site-option");
+      if (!option) return;
+      select.value = option.dataset.value;
+      syncSiteSelect(root);
+      closeSiteMenu(root, true);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    menu.addEventListener("keydown", event => {
+      const options = [...menu.querySelectorAll(".site-option")];
+      const activeIndex = options.indexOf(document.activeElement);
+      if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setSiteOptionFocus(root, activeIndex + (event.key === "ArrowDown" ? 1 : -1));
+      } else if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        setSiteOptionFocus(root, event.key === "Home" ? 0 : options.length - 1);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        closeSiteMenu(root, true);
+      } else if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const query = `${root.dataset.typeahead || ""}${event.key}`.toLowerCase();
+        root.dataset.typeahead = query;
+        clearTimeout(root.typeaheadTimer);
+        root.typeaheadTimer = setTimeout(() => { delete root.dataset.typeahead; }, 700);
+        const matchIndex = options.findIndex(option => option.textContent.toLowerCase().startsWith(query));
+        if (matchIndex >= 0) setSiteOptionFocus(root, matchIndex);
+      }
+    });
+    syncSiteSelect(root);
+  });
+  document.addEventListener("pointerdown", event => {
+    siteSelectRoots.forEach(root => { if (!root.contains(event.target)) closeSiteMenu(root); });
+  });
+  document.addEventListener("focusin", event => {
+    siteSelectRoots.forEach(root => { if (!root.contains(event.target)) closeSiteMenu(root); });
+  });
+  window.addEventListener("resize", () => siteSelectRoots.forEach(root => { if (!root.querySelector(".site-select-menu").hidden) positionSiteMenu(root); }));
+  window.addEventListener("scroll", () => siteSelectRoots.forEach(root => { if (!root.querySelector(".site-select-menu").hidden) positionSiteMenu(root); }), true);
+}
 function initialConfig() {
   return {
     schemaVersion: SCHEMA_VERSION,
@@ -137,6 +271,7 @@ function matchesFilters(rule) {
 }
 
 function render() {
+  syncSiteSelects();
   const defaults = ruleCatalog.map((rule, index) => ({ ...rule, ...config.defaults[rule.id], number: String(index + 1).padStart(2, "0") }));
   const visibleDefaults = currentView === "custom" ? [] : defaults.filter(matchesFilters);
   const visibleCustom = currentView === "default" ? [] : config.customRules.filter(matchesFilters);
@@ -213,6 +348,7 @@ function openEditor(kind = "custom", id = null) {
   els.ruleScope.value = rule?.scope || "all";
   els.ruleAction.value = rule?.action || "prefer";
   els.ruleValue.value = rule?.value || "";
+  syncSiteSelects();
   updateValueRequirement();
   els.ruleDialog.showModal();
   els.ruleName.focus();
@@ -308,5 +444,6 @@ try {
   if (cached) config = normalizeConfig(JSON.parse(cached));
 } catch { /* Fetch authoritative settings when a browser cache is invalid. */ }
 setTheme(currentTheme);
+enhanceSiteSelects();
 render();
 hydrateRules();
